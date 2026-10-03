@@ -6,6 +6,7 @@ from app.core.renderer import render_overlay_png
 
 
 def compute_metrics(flood_mask) -> dict:
+    """Chuyển binary flood mask thành các giá trị dashboard hiển thị."""
     pixels = int(flood_mask.sum())
     return {
         "flood_pixels": pixels,
@@ -14,6 +15,7 @@ def compute_metrics(flood_mask) -> dict:
 
 
 def _cache_paths() -> dict:
+    """Trả về toàn bộ đường dẫn output được sinh ra cho một raster."""
     return {
         "overlay": os.path.join(CACHE_DIR, "flood_overlay.png"),
         "metrics": os.path.join(CACHE_DIR, "metrics.json"),
@@ -22,9 +24,12 @@ def _cache_paths() -> dict:
 
 
 def get_or_build():
+    """Dùng cache nếu có hoặc build lại output từ raster local."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     paths = _cache_paths()
 
+    # Chỉ xem cache là sẵn sàng khi đủ mọi artifact. Nếu thiếu một file thì
+    # build lại toàn bộ để metrics và overlay luôn khớp với nhau.
     if all(os.path.exists(p) for p in paths.values()):
         with open(paths["metrics"]) as f:
             metrics = json.load(f)
@@ -32,6 +37,7 @@ def get_or_build():
             bounds = json.load(f)
         return paths["overlay"], metrics, bounds
 
+    # Clipping là bước tốn thời gian; kết quả của nó được dùng cho mọi output.
     flood_mask, bounds = load_clipped_flood()
     metrics = compute_metrics(flood_mask)
     render_overlay_png(flood_mask, paths["overlay"])
@@ -45,6 +51,7 @@ def get_or_build():
 
 
 def invalidate():
+    """Xóa output để request tiếp theo build lại từ raster mới."""
     for p in _cache_paths().values():
         if os.path.exists(p):
             os.remove(p)
