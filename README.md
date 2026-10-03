@@ -6,8 +6,10 @@ The backend is on the `feature/disaster-tracker-backend` branch.
 
 ### 1. Get the code
 
-```bash
-git clone git@github.com:Tmhduc/stormhack26-natural-disasters.git
+These Git commands work on Linux, macOS, and Windows. HTTPS avoids requiring an SSH key.
+
+```text
+git clone https://github.com/Tmhduc/stormhack26-natural-disasters.git
 cd stormhack26-natural-disasters
 git switch feature/disaster-tracker-backend
 cd backend/disaster-tracker-backend
@@ -25,26 +27,51 @@ uv sync
 
 The repository includes the boundary archive, but the extracted files are kept out of Git because they are large generated/local data files.
 
-```bash
+#### Linux or macOS
+
+Run from `backend/disaster-tracker-backend` in a terminal with `unzip` installed:
+
+```sh
 mkdir -p data/vietnam_boundary
 unzip -o vnm_admin_boundaries.shp.zip -d data/vietnam_boundary
 ```
+
+#### Windows PowerShell
+
+Run from `backend/disaster-tracker-backend`:
+
+```powershell
+New-Item -ItemType Directory -Force data/vietnam_boundary | Out-Null
+Expand-Archive -Path vnm_admin_boundaries.shp.zip -DestinationPath data/vietnam_boundary -Force
+```
+
+If the archive was previously extracted, rerunning either command is safe.
 
 The backend expects `data/vietnam_boundary/vnm_admin0.shp` and its accompanying `.dbf`, `.shx`, `.prj`, and `.cpg` files.
 
 ### 4. Add your NASA token locally
 
-Create `data/.token` and paste in your own NASA Earthdata token:
+Create `data/.token` and paste in your own NASA Earthdata token. Use the command for your shell:
 
-```bash
+#### Linux or macOS
+
+```sh
 printf '%s\n' 'YOUR_NASA_TOKEN' > data/.token
 ```
+
+#### Windows PowerShell
+
+```powershell
+Set-Content -Path data/.token -Value 'YOUR_NASA_TOKEN' -NoNewline
+```
+
+You can also create `data/.token` manually in any editor and paste the token as a single line.
 
 Never commit or share this file. It is ignored by Git.
 
 ### 5. Run the backend
 
-```bash
+```text
 uv run uvicorn app.main:app --reload
 ```
 
@@ -52,7 +79,7 @@ The API is available at `http://localhost:8000`. Interactive API documentation i
 
 ### 6. Test the data pipeline
 
-```bash
+```text
 uv run python test_pipeline.py
 ```
 

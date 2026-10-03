@@ -1,11 +1,12 @@
 import os
+from datetime import datetime, timezone
 
-# Demo đang cố định một tile dữ liệu gần thời gian thực của NASA để mọi request
-# dùng cùng một nguồn dữ liệu. Sau này có thể thay bằng cấu hình chọn dataset
-# theo ngày, khu vực và phiên bản xử lý.
-TILE_ID = "h28v07"
-YEAR = "2026"
-DOY = "276"
+# Mặc định lấy ngày UTC hiện tại để refresh không bị kẹt ở một dataset cũ.
+# Có thể khóa dataset khi demo bằng NASA_YEAR/NASA_DOY/NASA_TILE_ID.
+NOW_UTC = datetime.now(timezone.utc)
+TILE_ID = os.getenv("NASA_TILE_ID", "h28v07")
+YEAR = os.getenv("NASA_YEAR", str(NOW_UTC.year))
+DOY = os.getenv("NASA_DOY", str(NOW_UTC.timetuple().tm_yday).zfill(3))
 TILE_FILENAME = f"MCDWD_L3_F2_NRT.A{YEAR}{DOY}.{TILE_ID}.061.tif"
 TILE_URL = (
     f"https://nrt3.modaps.eosdis.nasa.gov/archive/allData/61/"
