@@ -9,6 +9,7 @@ _lock = threading.Lock()
 
 
 def compute_metrics(flood_mask) -> dict:
+    """Chuyển binary flood mask thành các giá trị dashboard hiển thị."""
     pixels = int(flood_mask.sum())
     return {
         "flood_pixels": pixels,
@@ -17,6 +18,7 @@ def compute_metrics(flood_mask) -> dict:
 
 
 def _cache_paths() -> dict:
+    """Trả về toàn bộ đường dẫn output được sinh ra cho một raster."""
     return {
         "overlay": os.path.join(CACHE_DIR, "flood_overlay.png"),
         "metrics": os.path.join(CACHE_DIR, "metrics.json"),
@@ -51,6 +53,7 @@ def _build():
     os.makedirs(CACHE_DIR, exist_ok=True)
     paths = _cache_paths()
 
+    # Clipping là bước tốn thời gian; kết quả của nó được dùng cho mọi output.
     flood_mask, bounds = load_clipped_flood()
     metrics = compute_metrics(flood_mask)
     render_overlay_png(flood_mask, paths["overlay"])
@@ -64,6 +67,7 @@ def _build():
 
 
 def invalidate():
+    """Xóa output để request tiếp theo build lại từ raster mới."""
     for p in _cache_paths().values():
         if os.path.exists(p):
             os.remove(p)

@@ -16,6 +16,8 @@ router = APIRouter(prefix="/api/flood", tags=["flood"])
 
 @router.get("/metrics", response_model=FloodMetrics)
 def get_metrics():
+    # Metrics được build lazy. Request đầu tiên tạo cache; các request sau đọc
+    # JSON đã sinh cho tới khi refresh xóa cache.
     try:
         _, metrics, bounds = cache.get_or_build()
     except FileNotFoundError:
@@ -34,6 +36,8 @@ def get_metrics():
 
 @router.get("/overlay", response_model=OverlayResponse)
 def get_overlay():
+    # PNG được serve qua /static; bounds cho frontend biết đặt ảnh ở đâu trên
+    # mặt phẳng địa lý.
     try:
         _, _, bounds = cache.get_or_build()
     except FileNotFoundError:
@@ -43,6 +47,7 @@ def get_overlay():
 
 @router.get("/boundary")
 def get_boundary():
+    # Chỉ tạo boundary dạng dễ dùng cho browser khi có request đầu tiên.
     if not os.path.exists(BOUNDARY_GEOJSON):
         ensure_boundary_geojson()
     return FileResponse(BOUNDARY_GEOJSON, media_type="application/geo+json")
@@ -68,13 +73,18 @@ def status():
 
 @router.get("/inspect", response_model=InspectResponse)
 def inspect(lat: float, lon: float):
+    # Demo đọc trực tiếp array đã clip thay vì query raster gốc cho mỗi click.
     flood_mask, bounds = load_clipped_flood()
     left, bottom, right, top = bounds
     h, w = flood_mask.shape
 
+    # Phép đổi bên dưới giả định bounds của mask và tọa độ input dùng cùng CRS.
+    # Cần kiểm tra lại assumption này nếu đổi sản phẩm NASA hoặc boundary.
     if not (left <= lon <= right and bottom <= lat <= top):
         return InspectResponse(inside=False, lat=lat, lon=lon)
 
+    # Column tăng về phía đông; row tăng xuống dưới, nên latitude được tính từ
+    # cạnh phía bắc khi chuyển thành row index.
     x = max(0, min(int((lon - left) / (right - left) * w), w - 1))
     y = max(0, min(int((top - lat) / (top - bottom) * h), h - 1))
     return InspectResponse(
