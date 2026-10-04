@@ -1,30 +1,36 @@
-import os
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
-from rasterio.transform import rowcol
-from rasterio.warp import transform
-from shapely.geometry import Point
-
-from app.config import BOUNDARY_GEOJSON, LANCE_POLL_MINUTES
+from pydantic import BaseModel
+from app.config import LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
 from app.core.clipper import (
-    _boundary_wgs84,
-    ensure_boundary_geojson,
-    load_clipped_flood_with_metadata,
+    MCDWD_CLASS_NAMES,
+    MCDWD_FLOOD_CLASSES,
+    administrative_area,
+    ensure_browser_boundary_geojson,
+    inspect_flood_neighborhood,
+    inspect_flood_point,
 )
 from app.core.downloader import LanceError
+from app.core.alerts import send_sms, send_telegram
+from app.core.geocoder import forward_geocode, reverse_geocode
 from app.models import FloodMetrics, OverlayResponse, InspectResponse
 
 router = APIRouter(prefix="/api/flood", tags=["flood"])
 
 
+class SmsAlertRequest(BaseModel):
+    to: str
+    body: str
+
+
 @router.get("/metrics", response_model=FloodMetrics)
 def get_metrics():
-    # Metrics được build lazy. Request đầu tiên tạo cache; các request sau đọc
-    # JSON đã sinh cho tới khi refresh xóa cache.
+    # Metrics are built lazily. The first request creates the cache; later
+    # requests read the JSON files until refresh invalidates them.
     try:
         _, metrics, bounds = cache.get_or_build()
     except FileNotFoundError:
@@ -43,8 +49,8 @@ def get_metrics():
 
 @router.get("/overlay", response_model=OverlayResponse)
 def get_overlay():
-    # PNG được serve qua /static; bounds cho frontend biết đặt ảnh ở đâu trên
-    # mặt phẳng địa lý.
+    # The PNG is served from /static; bounds tell the frontend where to place it
+    # on the geographic map.
     try:
         _, _, bounds = cache.get_or_build()
     except FileNotFoundError:
@@ -54,15 +60,17 @@ def get_overlay():
 
 @router.get("/boundary")
 def get_boundary():
-    # Chỉ tạo boundary dạng dễ dùng cho browser khi có request đầu tiên.
-    if not os.path.exists(BOUNDARY_GEOJSON):
-        ensure_boundary_geojson()
-    return FileResponse(BOUNDARY_GEOJSON, media_type="application/geo+json")
+    # Serve a simplified copy; the full boundary remains backend-only.
+    return FileResponse(
+        ensure_browser_boundary_geojson(),
+        media_type="application/geo+json",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.post("/refresh")
 def refresh(day: Optional[date] = None, force: bool = False):
-    """Tải từ LANCE ngay; truyền `day` UTC để chọn ngày cụ thể thay vì ngày mới nhất."""
+    """Run the LANCE refresh now; pass a UTC `day` to select a specific date."""
     try:
         result = pipeline.run(day=day, force=force)
     except LanceError as e:
@@ -74,29 +82,73 @@ def refresh(day: Optional[date] = None, force: bool = False):
 
 @router.get("/status")
 def status():
-    """Cho biết pipeline LANCE đã tải gì và kiểm tra lần cuối lúc nào."""
-    return {**pipeline.read_state(), "poll_minutes": LANCE_POLL_MINUTES}
+    """Return what the LANCE pipeline loaded and when it last checked."""
+    return {
+        **pipeline.read_state(),
+        "poll_minutes": LANCE_POLL_MINUTES,
+        "data_lag_days": LANCE_DATA_LAG_DAYS,
+    }
+
+
+@router.get("/geocode")
+def geocode(q: str = Query(..., min_length=3, max_length=200)):
+    """Search Vietnamese addresses through the optional Google geocoder."""
+    return forward_geocode(q)
+
+
+@router.post("/alerts/sms")
+def sms_alert(payload: SmsAlertRequest):
+    """Send a responder-approved incident brief by SMS."""
+    try:
+        sid = send_sms(payload.to, payload.body)
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    except RuntimeError as error:
+        raise HTTPException(503, str(error))
+    return {"status": "sent", "message_sid": sid}
+
+
+class TelegramAlertRequest(BaseModel):
+    body: str
+
+
+@router.post("/alerts/telegram")
+def telegram_alert(payload: TelegramAlertRequest):
+    """Send a responder-approved incident brief to the configured Telegram chat."""
+    try:
+        message_id = send_telegram(payload.body)
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    except RuntimeError as error:
+        raise HTTPException(503, str(error))
+    return {"status": "sent", "message_id": message_id}
 
 
 @router.get("/inspect", response_model=InspectResponse)
-def inspect(lat: float, lon: float):
-    # Dùng transform thật của raster đã clip thay vì nội suy trên bounds địa lý,
-    # vì cách nội suy đó sai khi raster dùng CRS chiếu.
-    flood_mask, clipped_transform, raster_crs, _ = load_clipped_flood_with_metadata()
-    h, w = flood_mask.shape
-
-    # Raster sau crop luôn là hình chữ nhật; kiểm tra boundary để không trả về
-    # dữ liệu Việt Nam cho điểm ở nước láng giềng hoặc ngoài biển.
-    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
+    # Read one GeoTIFF pixel; only metrics and the overlay need the full mask.
+    flooded = inspect_flood_point(lat, lon)
+    if flooded is None:
         return InspectResponse(inside=False, lat=lat, lon=lon)
 
-    # Đổi điểm WGS84 từ API sang CRS raster trước khi lấy row/column. Nội suy
-    # trực tiếp trên bounds WGS84 sẽ sai với raster chiếu.
-    x_coords, y_coords = transform("EPSG:4326", raster_crs, [lon], [lat])
-    row, column = rowcol(clipped_transform, x_coords[0], y_coords[0])
-    if not (0 <= row < h and 0 <= column < w):
-        return InspectResponse(inside=False, lat=lat, lon=lon)
-
+    class_name = MCDWD_CLASS_NAMES.get(flooded, "unknown")
+    is_flood = None if flooded == 255 else flooded in MCDWD_FLOOD_CLASSES
+    area = administrative_area(lat, lon)
+    address = reverse_geocode(lat, lon)
+    nearby = inspect_flood_neighborhood(lat, lon, radius_km)
     return InspectResponse(
-        inside=True, flooded=bool(flood_mask[row, column] == 1), lat=lat, lon=lon
+        inside=True,
+        flooded=is_flood,
+        class_value=flooded,
+        class_name=class_name,
+        admin1_name=area["name"] if area else None,
+        admin1_type=area["type"] if area else None,
+        admin1_pcode=area["pcode"] if area else None,
+        address=address,
+        nearby_radius_km=nearby["radius_km"] if nearby else None,
+        nearby_pixels=nearby["pixels"] if nearby else None,
+        nearby_flood_pixels=nearby["flood_pixels"] if nearby else None,
+        nearby_class_counts=nearby["class_counts"] if nearby else {},
+        lat=lat,
+        lon=lon,
     )

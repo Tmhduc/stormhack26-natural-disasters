@@ -25,7 +25,8 @@ async def lifespan(app: FastAPI):
             # The app still serves files; the pipeline retries the schema before its next save.
             log.exception("Could not apply db/schema.sql")
     # Keep the flood overlay in step with LANCE: fetch on startup, then poll for new/reprocessed tiles.
-    # Giữ overlay theo kịp LANCE: chạy khi khởi động rồi poll tile mới hoặc được reprocess.
+    # Keep the overlay current with LANCE: run at startup, then poll for new or
+    # reprocessed tiles.
     poller = asyncio.create_task(pipeline.poll_forever(LANCE_POLL_MINUTES)) if LANCE_POLL_MINUTES > 0 else None
     yield
     if poller:
@@ -34,7 +35,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Flood monitor API", version="1.0.0", lifespan=lifespan)
 
-# Frontend chạy ở dev server riêng nên browser cần CORS permission để gọi API.
+# The frontend runs on a separate dev server, so browsers need CORS permission.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -42,13 +43,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files chỉ expose artifact sinh ra như overlay PNG. Credential và dữ
-# liệu nguồn vẫn nằm ngoài thư mục được mount này.
+# Static files expose generated artifacts such as the overlay PNG. Credentials
+# and source data remain outside the mounted directory.
 os.makedirs(CACHE_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=CACHE_DIR), name="static")
 
-# Đăng ký route ở một nơi để entry point ngắn gọn và mỗi feature tự quản lý
-# endpoint của mình.
+# Register routes in one place so the entry point stays small and each feature
+# owns its endpoints.
 app.include_router(health.router)
 app.include_router(flood.router)
 app.include_router(history_routes.router)

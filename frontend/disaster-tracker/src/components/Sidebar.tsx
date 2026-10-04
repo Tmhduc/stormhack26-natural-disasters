@@ -4,7 +4,7 @@ export default function Sidebar() {
       <a className="brand" href="#">
         <span className="brand-mark">◈</span>
         <span>
-          terra<span className="brand-dot">.</span>
+          DisTrack<span className="brand-dot">.</span>
           <small>DISASTER INTELLIGENCE</small>
         </span>
       </a>

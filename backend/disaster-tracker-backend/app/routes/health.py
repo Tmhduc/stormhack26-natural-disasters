@@ -5,6 +5,6 @@ router = APIRouter(tags=["health"])
 
 @router.get("/api/health")
 def health():
-    # Đây chỉ là liveness check: xác nhận FastAPI đang response, không đảm bảo
-    # raster, boundary, token hoặc cache đã sẵn sàng.
+    # This is only a liveness check. It does not guarantee that the raster,
+    # boundary, credentials, or cache are ready.
     return {"status": "ok"}

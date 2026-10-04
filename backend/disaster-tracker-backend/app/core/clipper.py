@@ -1,27 +1,58 @@
 import os
+import math
 from functools import lru_cache
 
 import geopandas as gpd
 import numpy as np
 import rasterio
+from rasterio.features import geometry_mask
 from rasterio.mask import mask
 from rasterio.transform import array_bounds
-from rasterio.warp import transform_bounds
-from shapely.geometry import box, mapping
+from rasterio.warp import transform as transform_coordinates
+from rasterio.warp import transform_bounds, transform_geom
+from rasterio.windows import Window
+from shapely.geometry import Point, box, mapping
 
 from app.config import (
-    LOCAL_RASTER, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
+    LOCAL_RASTER,
+    BOUNDARY_ADMIN1_SHP,
+    BOUNDARY_SHP,
+    BOUNDARY_GEOJSON,
+    BROWSER_BOUNDARY_GEOJSON,
+    BROWSER_BOUNDARY_TOLERANCE,
+    FLOOD_VALUE,
 )
+
+MCDWD_CLASS_NAMES = {
+    0: "no_water",
+    1: "reference_water",
+    2: "recurring_flood",
+    3: "unusual_flood",
+    255: "insufficient_data",
+}
+MCDWD_FLOOD_CLASSES = frozenset({2, 3})
 
 
 def ensure_boundary_geojson() -> str:
-    """Tạo file boundary dễ dùng cho browser từ shapefile gốc."""
+    """Create a browser-friendly GeoJSON boundary from the source shapefile."""
     if not os.path.exists(BOUNDARY_GEOJSON):
-        # Shapefile phù hợp cho xử lý địa lý; GeoJSON dễ để frontend request
-        # và vẽ trực tiếp trên bản đồ.
+        # Shapefiles are convenient for geospatial processing; GeoJSON is easier
+        # for the frontend to request and draw directly.
         gdf = gpd.read_file(BOUNDARY_SHP)
         gdf.to_file(BOUNDARY_GEOJSON, driver="GeoJSON")
     return BOUNDARY_GEOJSON
+
+
+def ensure_browser_boundary_geojson() -> str:
+    """Create a lightweight boundary for browser rendering on first request."""
+    if not os.path.exists(BROWSER_BOUNDARY_GEOJSON):
+        ensure_boundary_geojson()
+        boundary = gpd.read_file(BOUNDARY_GEOJSON)
+        boundary["geometry"] = boundary.geometry.simplify(
+            BROWSER_BOUNDARY_TOLERANCE, preserve_topology=True
+        )
+        boundary.to_file(BROWSER_BOUNDARY_GEOJSON, driver="GeoJSON")
+    return BROWSER_BOUNDARY_GEOJSON
 
 
 @lru_cache(maxsize=1)
@@ -30,15 +61,33 @@ def _boundary_wgs84() -> gpd.GeoDataFrame:
 
 
 def boundary_bounds() -> tuple[float, float, float, float]:
-    """Trả về (tây, nam, đông, bắc) của boundary theo độ WGS84."""
+    """Return the boundary as (west, south, east, north) in WGS84 degrees."""
     return tuple(float(v) for v in _boundary_wgs84().total_bounds)
 
 
-def boundary_tiles() -> list[str]:
-    """Tìm ID các tile của sản phẩm ngập giao với boundary.
+@lru_cache(maxsize=1)
+def _admin1_wgs84() -> gpd.GeoDataFrame:
+    return gpd.read_file(BOUNDARY_ADMIN1_SHP).to_crs("EPSG:4326")
 
-    MCDWD dùng lưới kinh/vĩ độ 10 độ: tile hHHvVV có góc trên-trái tại
-    (HH * 10 - 180)°E, (90 - VV * 10)°N.
+
+def administrative_area(lat: float, lon: float) -> dict | None:
+    """Find the local admin1 area containing a WGS84 coordinate."""
+    matches = _admin1_wgs84()[_admin1_wgs84().geometry.covers(Point(lon, lat))]
+    if matches.empty:
+        return None
+    area = matches.iloc[0]
+    return {
+        "name": str(area["adm1_name"]),
+        "type": str(area["adm1_type_"]),
+        "pcode": str(area["adm1_pcode"]),
+    }
+
+
+def boundary_tiles() -> list[str]:
+    """Find flood-product tile IDs intersecting the national boundary.
+
+    MCDWD uses a 10-degree latitude/longitude grid. Tile hHHvVV has its
+    top-left corner at (HH * 10 - 180)°E, (90 - VV * 10)°N.
     """
     boundary = _boundary_wgs84()
     west, south, east, north = boundary_bounds()
@@ -58,29 +107,29 @@ def _load_clipped_flood() -> tuple:
     vietnam = gpd.read_file(BOUNDARY_SHP)
 
     with rasterio.open(LOCAL_RASTER) as src:
-        # Boundary phải dùng cùng CRS với raster trước khi Rasterio cắt dữ liệu.
+        # Rasterio requires the boundary and raster to use the same CRS.
         vietnam = vietnam.to_crs(src.crs)
         geoms = [mapping(g) for g in vietnam.geometry]
         clipped, transform = mask(src, geoms, crop=True, all_touched=False)
         raster_crs = src.crs
 
     data = clipped[0]
-    # Chuẩn hóa dữ liệu nguồn thành format chung của app: 1 = ngập, 0 = không
-    # ngập. Nhờ vậy metrics, rendering và inspect dùng cùng một quy ước.
+    # Normalize source data into the app convention: 1 = flood, 0 = not flood.
+    # Metrics, rendering, and inspection then share the same representation.
     flood_mask = (data == FLOOD_VALUE).astype(np.uint8)
 
-    # Transform mô tả các cạnh ngoài của array sau khi crop trong CRS của raster.
+    # The transform describes the cropped array's outer edges in the raster CRS.
     raster_bounds = array_bounds(data.shape[0], data.shape[1], transform)
 
-    # API nhận latitude/longitude, vì vậy bounds phải trả về WGS84 ngay cả khi
-    # raster nguồn dùng một CRS chiếu khác.
+    # The API accepts latitude/longitude, so bounds must be returned in WGS84
+    # even when the source raster uses a projected CRS.
     bounds = transform_bounds(raster_crs, "EPSG:4326", *raster_bounds)
     return flood_mask, transform, raster_crs, tuple(float(value) for value in bounds)
 
 
 @lru_cache(maxsize=1)
 def _load_clipped_flood_cached(raster_signature: tuple[int, int]) -> tuple:
-    """Cache bước crop tốn thời gian cho đến khi file mosaic thay đổi."""
+    """Cache the expensive crop step until the mosaic file changes."""
     return _load_clipped_flood()
 
 
@@ -89,11 +138,76 @@ def _raster_signature() -> tuple[int, int]:
     return stat.st_size, stat.st_mtime_ns
 
 
+@lru_cache(maxsize=4)
+def _boundary_geometries_in_raster(crs_name: str) -> tuple[dict, ...]:
+    """Transform boundary geometries once per raster CRS for neighborhood masks."""
+    return tuple(
+        transform_geom("EPSG:4326", crs_name, mapping(geometry))
+        for geometry in _boundary_wgs84().geometry
+    )
+
+
 def load_clipped_flood() -> tuple:
     flood_mask, _, _, bounds = _load_clipped_flood_cached(_raster_signature())
     return flood_mask, bounds
 
 
 def load_clipped_flood_with_metadata() -> tuple:
-    """Trả về mask cùng transform và CRS cần cho việc tra cứu tọa độ."""
+    """Return the mask plus transform and CRS needed for coordinate lookup."""
     return _load_clipped_flood_cached(_raster_signature())
+
+
+def inspect_flood_point(lat: float, lon: float) -> int | None:
+    """Read the original product class at a WGS84 coordinate."""
+    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+        return None
+
+    with rasterio.open(LOCAL_RASTER) as src:
+        x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
+        row, column = src.index(x[0], y[0])
+        if not (0 <= row < src.height and 0 <= column < src.width):
+            return None
+        value = src.read(1, window=Window(column, row, 1, 1))[0, 0]
+    return int(value)
+
+
+def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict | None:
+    """Count product classes in a small neighborhood around a WGS84 point."""
+    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+        return None
+
+    with rasterio.open(LOCAL_RASTER) as src:
+        x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
+        row, column = src.index(x[0], y[0])
+        if not (0 <= row < src.height and 0 <= column < src.width):
+            return None
+
+        meters_per_pixel = abs(src.res[1]) * 111_320
+        pixel_radius = max(1, math.ceil(radius_km * 1000 / meters_per_pixel))
+        window = Window(
+            column - pixel_radius,
+            row - pixel_radius,
+            pixel_radius * 2 + 1,
+            pixel_radius * 2 + 1,
+        ).intersection(Window(0, 0, src.width, src.height))
+        data = src.read(1, window=window)
+        source_transform = src.window_transform(window)
+        boundary_in_raster = _boundary_geometries_in_raster(src.crs.to_string())
+        inside = geometry_mask(
+            boundary_in_raster,
+            out_shape=data.shape,
+            transform=source_transform,
+            invert=True,
+            all_touched=False,
+        )
+
+    class_counts = {
+        name: int(((data == value) & inside).sum())
+        for value, name in MCDWD_CLASS_NAMES.items()
+    }
+    return {
+        "radius_km": radius_km,
+        "pixels": int(inside.sum()),
+        "class_counts": class_counts,
+        "flood_pixels": sum(class_counts.get(MCDWD_CLASS_NAMES[value], 0) for value in MCDWD_FLOOD_CLASSES),
+    }

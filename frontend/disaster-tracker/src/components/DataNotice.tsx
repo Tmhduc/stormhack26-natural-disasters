@@ -5,8 +5,8 @@ type Props = { metrics: Metrics | null; busy: boolean; onReconnect: () => void }
 export default function DataNotice({ metrics, busy, onReconnect }: Props) {
   const details = metrics
     ? [
-        metrics.tiles.length && `Tiles ${metrics.tiles.join(", ")}`,
-        metrics.date && `Acquisition ${metrics.date} (UTC)`,
+        metrics.tiles.length && `Coverage: ${metrics.tiles.length} satellite areas`,
+        metrics.date && `Observed: ${metrics.date} UTC`,
       ]
         .filter(Boolean)
         .join(" · ")
@@ -16,10 +16,10 @@ export default function DataNotice({ metrics, busy, onReconnect }: Props) {
       <span className="notice-icon">◉</span>
       <div>
         <strong>Vietnam flood monitoring</strong>
-        <span>NASA MODIS · {details}</span>
+        <span>Satellite flood observations · {details}</span>
       </div>
-      <button className="text-button" disabled={busy} onClick={onReconnect}>
-        Reconnect ↗
+      <button title="Read data already available on the backend; no NASA download requested." className="text-button" disabled={busy} onClick={onReconnect}>
+        Reload dashboard ↗
       </button>
     </div>
   );

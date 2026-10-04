@@ -23,7 +23,7 @@ export default function LayerPanel({
       <label className="layer">
         <span>
           <i className="layer-color" />
-          Flood classification<small>NASA satellite observation</small>
+          Areas flagged for flooding<small>NASA satellite observation</small>
         </span>
         <input
           type="checkbox"

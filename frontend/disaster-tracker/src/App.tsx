@@ -1,11 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { geographic } from "./api";
 import type { Metrics, Overlay } from "./api";
 import DataNotice from "./components/DataNotice";
 import ErrorBanner from "./components/ErrorBanner";
 import FloodMap from "./components/FloodMap";
 import Footer from "./components/Footer";
+import FloodTrend from "./components/FloodTrend";
+import HotspotPanel from "./components/HotspotPanel";
 import HistoryTimeline from "./components/HistoryTimeline";
+import IncidentBrief from "./components/IncidentBrief";
+import ResponderBoard from "./components/ResponderBoard";
+import type { Inspection } from "./api";
 import InspectPanel from "./components/InspectPanel";
 import LayerPanel from "./components/LayerPanel";
 import PageHeading from "./components/PageHeading";
@@ -15,13 +20,24 @@ import StatsGrid from "./components/StatsGrid";
 import Topbar from "./components/Topbar";
 import { useFloodData } from "./hooks/useFloodData";
 import { useFloodHistory } from "./hooks/useFloodHistory";
+import { useFloodTrend } from "./hooks/useFloodTrend";
+import { useSavedIncidents } from "./hooks/useSavedIncidents";
+import { useHotspots } from "./hooks/useHotspots";
 import { useLocationInspector } from "./hooks/useLocationInspector";
 import "./App.css";
 
 function App() {
   const flood = useFloodData();
   const history = useFloodHistory(flood.updated);
+  const trend = useFloodTrend(flood.updated);
   const inspector = useLocationInspector();
+  const saved = useSavedIncidents(flood.updated);
+  const hotspots = useHotspots(flood.updated);
+  const { clearResult } = inspector;
+  useEffect(() => {
+    const timer = setTimeout(clearResult, 0);
+    return () => clearTimeout(timer);
+  }, [flood.datasetVersion, clearResult]);
   const [selectedId, setSelectedId] = useState<number | null>(null); // null = latest data
   const [showFlood, setShowFlood] = useState(true);
   const [opacity, setOpacity] = useState(75);
@@ -58,6 +74,14 @@ function App() {
     inspector.clearResult();
     setSelectedId(id);
   }
+  async function saveIncident(inspection: Inspection) {
+    await saved.save(inspection, metrics);
+    hotspots.reload();
+  }
+  async function removeIncident(id: string) {
+    await saved.remove(id);
+    hotspots.reload();
+  }
   return (
     <div className="shell">
       <Sidebar />
@@ -65,6 +89,8 @@ function App() {
         <Topbar connected={flood.connected} busy={busy} />
         <PageHeading busy={busy} onRefresh={() => reload(true)} />
         <DataNotice metrics={metrics} busy={busy} onReconnect={() => reload()} />
+        <div className="reload-help"><p><strong>Reload dashboard</strong> reads saved backend data. <strong>Refresh satellite data</strong> checks NASA and processes new imagery when available.</p><label><input type="checkbox" checked={flood.autoReload} onChange={e => flood.setAutoReload(e.target.checked)} />Auto reload every 60s</label></div>
+        <p className="reload-status" role="status">{busy ? flood.phase : flood.error ? 'Update failed. Previously displayed data may be out of date.' : flood.lastRead ? `Dashboard last read: ${new Date(flood.lastRead).toLocaleTimeString()}` : 'Waiting for data'}{pastDay ? ' · Viewing selected historical day' : ''}</p>
         {flood.error && <ErrorBanner message={flood.error} />}
         {(history.days.length > 0 || history.error) && (
           <HistoryTimeline
@@ -75,9 +101,14 @@ function App() {
             error={history.error}
           />
         )}
+        <FloodTrend points={trend.points} error={trend.error} />
+        <HotspotPanel hotspots={hotspots.hotspots} error={hotspots.error} />
         <StatsGrid metrics={metrics} />
         <div className="workspace">
           <FloodMap
+            inspector={inspector}
+            acquisitionDate={metrics?.date || null}
+            inspectDisabled={busy || !flood.metrics || !geographic(flood.metrics.bounds) || !!pastDay}
             boundary={flood.boundary}
             overlay={overlay}
             archiveDate={pastDay ? pastDay.date : null}
@@ -111,8 +142,10 @@ function App() {
               canPlot={canPlot}
               imageError={imageError}
             />
+            <IncidentBrief inspection={inspector.inspection} metrics={metrics} onSave={saveIncident} saved={!!inspector.inspection && saved.incidents.some((item) => item.lat === inspector.inspection?.lat && item.lon === inspector.inspection?.lon)} />
           </aside>
         </div>
+        <ResponderBoard incidents={saved.incidents} metrics={metrics} onRemove={removeIncident} onUpdate={saved.update} error={saved.error} />
         <SourceCard />
         <Footer />
       </main>

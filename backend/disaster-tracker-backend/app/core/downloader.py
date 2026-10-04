@@ -1,4 +1,4 @@
-"""Client tìm và tải các tile ngập đã được công bố trên archive LANCE."""
+"""Discover and download flood tiles published in the LANCE archive."""
 
 import logging
 import os
@@ -15,7 +15,7 @@ from app.config import LANCE_API_URL, LANCE_ARCHIVE_URL, LANCE_PRODUCT, NASA_TOK
 
 log = logging.getLogger(__name__)
 
-# Ví dụ tên file hợp lệ: MCDWD_L3_F2_NRT.A2026276.h28v07.061.tif
+# Example valid filename: MCDWD_L3_F2_NRT.A2026276.h28v07.061.tif
 _TILE_NAME = re.compile(r"\.A\d{7}\.(h\d{2}v\d{2})\.\d{3}\.tif$")
 
 
@@ -29,7 +29,7 @@ class RemoteTile:
     name: str
     day: date
     size: int
-    mtime: int  # thay đổi khi LANCE xử lý lại tile với dữ liệu mới hơn
+    mtime: int  # Changes when LANCE reprocesses a tile with newer data.
 
     @property
     def url(self) -> str:
@@ -53,10 +53,10 @@ _session = _make_session()
 
 
 def list_day(day: date) -> dict[str, RemoteTile]:
-    """Lấy mọi tile LANCE công bố trong ngày UTC, lập chỉ mục theo tile ID."""
+    """List every LANCE tile published on a UTC day, indexed by tile ID."""
     url = f"{LANCE_API_URL}/{LANCE_PRODUCT}/{day:%Y}/{day:%j}"
     r = _session.get(url, params={"fields": "all", "formats": "json"}, timeout=30)
-    if r.status_code == 404:  # chưa công bố hoặc đã bị xóa khỏi archive
+    if r.status_code == 404:  # Not published yet or removed from the archive.
         return {}
     r.raise_for_status()
 
@@ -76,14 +76,14 @@ def tiles_for_day(day: date, tiles: list[str]) -> list[RemoteTile]:
     return [available[t] for t in tiles]
 
 
-def find_latest(tiles: list[str], lookback_days: int) -> tuple[date, list[RemoteTile]]:
-    """Tìm ngày UTC mới nhất đã công bố đầy đủ tất cả `tiles`.
+def find_latest(tiles: list[str], lookback_days: int, lag_days: int = 0) -> tuple[date, list[RemoteTile]]:
+    """Find the newest UTC day with all requested `tiles` available.
 
-    Ngày hiện tại được bổ sung dần khi vệ tinh bay qua, nên phải bỏ qua cho
-    đến khi đủ tile thay vì ghép một ngày chưa hoàn chỉnh.
+    The current day is published gradually as the satellite passes over an
+    area, so wait until all tiles are available instead of building partial data.
     """
     today = datetime.now(timezone.utc).date()
-    for back in range(lookback_days + 1):
+    for back in range(max(0, lag_days), lookback_days + 1):
         day = today - timedelta(days=back)
         try:
             return day, tiles_for_day(day, tiles)
@@ -102,7 +102,7 @@ def is_current(tile: RemoteTile) -> bool:
 
 
 def download_tile(tile: RemoteTile) -> str:
-    """Tải `tile` nếu đúng phiên bản chưa có trên đĩa, rồi trả về local path."""
+    """Download `tile` when the current version is not already on disk."""
     path = tile.local_path
     if is_current(tile):
         return path
@@ -121,12 +121,12 @@ def download_tile(tile: RemoteTile) -> str:
                         f.write(chunk)
                         received += len(chunk)
 
-        # HTTP trả về thành công vẫn có thể bị thiếu byte. Không được đổi tên
-        # file dở dang thành file thật hoặc đánh dấu nó là phiên bản hiện tại.
+        # A successful HTTP response can still be truncated. Never promote a
+        # partial file to the current version.
         if received != tile.size:
             raise LanceError(f"Incomplete download for {tile.name}: received {received} bytes, expected {tile.size}")
-        # Mở thử bằng Rasterio để bắt payload HTML, file lỗi hoặc GeoTIFF hỏng
-        # trước khi file được đưa vào bước ghép mosaic.
+        # Open with Rasterio to catch HTML payloads, corrupt files, or invalid
+        # GeoTIFFs before the tile reaches mosaic creation.
         with rasterio.open(partial) as dataset:
             if dataset.count < 1 or dataset.width < 1 or dataset.height < 1:
                 raise LanceError(f"Downloaded tile {tile.name} is not a usable raster")
@@ -134,13 +134,13 @@ def download_tile(tile: RemoteTile) -> str:
     finally:
         if os.path.exists(partial):
             os.remove(partial)
-    # Gắn mtime của upstream để is_current() phát hiện lúc LANCE reprocess tile.
+    # Preserve the upstream mtime so is_current() detects reprocessed tiles.
     log.info("Downloaded %s (%d bytes)", tile.name, tile.size)
     return path
 
 
 def prune(keep: list[str]) -> None:
-    """Xóa tile không nằm trong `keep` và các thư mục ngày đã rỗng."""
+    """Delete tiles not in `keep` and date folders that are now empty."""
     keep = {os.path.abspath(p) for p in keep}
     if not os.path.isdir(RAW_DIR):
         return

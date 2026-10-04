@@ -7,9 +7,9 @@ tests/test_db.py checks the two stay in step.
 
 import configparser
 import os
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, DateTime, Double, Engine, Integer, LargeBinary, Text, create_engine, func, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Double, Engine, Integer, LargeBinary, Text, create_engine, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, mapped_column
@@ -81,6 +81,30 @@ class ImageRow(Base):
 
     nbytes: Mapped[int | None] = column_property(func.octet_length(data))
     has_original: Mapped[bool] = column_property(original.isnot(None))
+
+
+class FloodIncidentRow(Base):
+    __tablename__ = "flood_incidents"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    observed_date: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lat: Mapped[float] = mapped_column(Double)
+    lon: Mapped[float] = mapped_column(Double)
+    address: Mapped[str | None] = mapped_column(Text)
+    admin1_name: Mapped[str | None] = mapped_column(Text)
+    admin1_type: Mapped[str | None] = mapped_column(Text)
+    class_value: Mapped[int | None] = mapped_column(Integer)
+    class_name: Mapped[str | None] = mapped_column(Text)
+    flooded: Mapped[bool | None] = mapped_column(Boolean)
+    nearby_radius_km: Mapped[float | None] = mapped_column(Double)
+    nearby_pixels: Mapped[int | None] = mapped_column(Integer)
+    nearby_flood_pixels: Mapped[int | None] = mapped_column(Integer)
+    severity: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default="open")
+    notes: Mapped[str | None] = mapped_column(Text)
+    data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
 
 def libpq_url(url: str) -> str:

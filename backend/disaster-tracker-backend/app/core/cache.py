@@ -15,11 +15,10 @@ _METRICS_VERSION = 2
 
 
 def compute_metrics(flood_mask, raster_transform=None, raster_crs=None) -> dict:
-    """Tính diện tích ngập, ưu tiên diện tích địa trắc của từng pixel."""
+    """Calculate flooded area, using geodesic pixel areas when possible."""
     pixels = int(flood_mask.sum())
     if raster_transform is None or raster_crs is None or not raster_crs.is_geographic:
-        # Chỉ dùng giá trị cấu hình dự phòng khi caller không cung cấp đủ
-        # metadata địa lý để tính diện tích thật của từng ô raster.
+        # Use the configured fallback only when geographic metadata is missing.
         flooded_km2 = pixels * PIXEL_KM2
     else:
         geod = Geod(ellps="WGS84")
@@ -27,8 +26,8 @@ def compute_metrics(flood_mask, raster_transform=None, raster_crs=None) -> dict:
         for row, count in enumerate(np.count_nonzero(flood_mask, axis=1)):
             if count == 0:
                 continue
-            # Pixel theo kinh độ/vĩ độ nhỏ dần khi đi về cực; dùng một diện
-            # tích cố định sẽ làm tăng sai diện tích ngập ở miền Bắc Việt Nam.
+            # Geographic pixels become smaller toward the poles. A fixed area
+            # would overestimate flooding in northern Vietnam.
             left, bottom = xy(raster_transform, row, 0, offset="ul")
             right, top = xy(raster_transform, row, 1, offset="ul")
             left_bottom = xy(raster_transform, row + 1, 0, offset="ul")
@@ -45,7 +44,7 @@ def compute_metrics(flood_mask, raster_transform=None, raster_crs=None) -> dict:
 
 
 def _cache_paths() -> dict:
-    """Trả về toàn bộ đường dẫn output được sinh ra cho một raster."""
+    """Return all generated output paths for the current raster."""
     return {
         "overlay": os.path.join(CACHE_DIR, "flood_overlay.png"),
         "metrics": os.path.join(CACHE_DIR, "metrics.json"),
@@ -57,8 +56,8 @@ def _cache_paths() -> dict:
 def _manifest() -> dict:
     stat = os.stat(LOCAL_RASTER)
     return {
-        # Đây là dữ liệu dẫn xuất; các giá trị này xác định raster và quy tắc
-        # phân loại đã được dùng để tạo ra các file cache.
+        # These values identify the source raster and classification rules used
+        # to create the derived cache files.
         "raster_size": stat.st_size,
         "raster_mtime_ns": stat.st_mtime_ns,
         "flood_value": FLOOD_VALUE,
@@ -91,7 +90,7 @@ def get_or_build():
 
 
 def rebuild():
-    """Tạo lại overlay và metrics từ raster hiện tại."""
+    """Rebuild the overlay and metrics from the current raster."""
     with _lock:
         invalidate()
         return _build()
@@ -101,7 +100,7 @@ def _build():
     os.makedirs(CACHE_DIR, exist_ok=True)
     paths = _cache_paths()
 
-    # Clipping là bước tốn thời gian; kết quả của nó được dùng cho mọi output.
+    # Clipping is expensive, so the same result feeds every output.
     flood_mask, raster_transform, raster_crs, bounds = load_clipped_flood_with_metadata()
     metrics = compute_metrics(flood_mask, raster_transform, raster_crs)
     render_overlay_png(flood_mask, paths["overlay"])
@@ -117,7 +116,7 @@ def _build():
 
 
 def invalidate():
-    """Xóa output để request tiếp theo build lại từ raster mới."""
+    """Delete generated outputs so the next request rebuilds them."""
     for p in _cache_paths().values():
         if os.path.exists(p):
             os.remove(p)
