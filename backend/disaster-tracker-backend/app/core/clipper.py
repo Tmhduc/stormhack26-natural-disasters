@@ -1,23 +1,25 @@
 import os
 import math
+import zipfile
 from functools import lru_cache
 
 import geopandas as gpd
 import numpy as np
 import rasterio
 from rasterio.features import geometry_mask
-from rasterio.mask import mask
+from rasterio.mask import raster_geometry_mask
 from rasterio.transform import array_bounds
 from rasterio.warp import transform as transform_coordinates
 from rasterio.warp import transform_bounds, transform_geom
 from rasterio.windows import Window
+from shapely import clip_by_rect
 from shapely.geometry import Point, box, mapping
 
 from app.config import (
     LOCAL_RASTER,
     BOUNDARY_ADMIN1_SHP,
     BOUNDARY_SHP,
-    BOUNDARY_GEOJSON,
+    BOUNDARY_ZIP,
     BROWSER_BOUNDARY_GEOJSON,
     BROWSER_BOUNDARY_TOLERANCE,
     FLOOD_VALUE,
@@ -33,25 +35,34 @@ MCDWD_CLASS_NAMES = {
 MCDWD_FLOOD_CLASSES = frozenset({2, 3})
 
 
-def ensure_boundary_geojson() -> str:
-    """Create a browser-friendly GeoJSON boundary from the source shapefile."""
-    if not os.path.exists(BOUNDARY_GEOJSON):
-        # Shapefiles are convenient for geospatial processing; GeoJSON is easier
-        # for the frontend to request and draw directly.
-        gdf = gpd.read_file(BOUNDARY_SHP)
-        gdf.to_file(BOUNDARY_GEOJSON, driver="GeoJSON")
-    return BOUNDARY_GEOJSON
+def ensure_boundary_files() -> None:
+    """Extract the country and province shapefiles from the committed archive if they're missing.
+
+    data/ isn't in Git, so a fresh deploy starts without them.
+    """
+    if os.path.exists(BOUNDARY_SHP) and os.path.exists(BOUNDARY_ADMIN1_SHP):
+        return
+    wanted = ("vnm_admin0.", "vnm_admin1.")
+    with zipfile.ZipFile(BOUNDARY_ZIP) as archive:
+        members = [m for m in archive.namelist() if m.startswith(wanted)]
+        # .shp last: its presence is what marks the extraction as complete.
+        for member in sorted(members, key=lambda m: m.endswith(".shp")):
+            archive.extract(member, os.path.dirname(BOUNDARY_SHP))
 
 
 def ensure_browser_boundary_geojson() -> str:
     """Create a lightweight boundary for browser rendering on first request."""
     if not os.path.exists(BROWSER_BOUNDARY_GEOJSON):
-        ensure_boundary_geojson()
-        boundary = gpd.read_file(BOUNDARY_GEOJSON)
-        boundary["geometry"] = boundary.geometry.simplify(
-            BROWSER_BOUNDARY_TOLERANCE, preserve_topology=True
+        # Simplify the boundary already held in memory. Writing the full-resolution boundary
+        # to GeoJSON and reading it back first peaked at ~660 MB, enough to kill a 512 MB server.
+        boundary = _boundary_wgs84()
+        simplified = gpd.GeoDataFrame(
+            boundary.drop(columns="geometry"),
+            geometry=boundary.geometry.simplify(BROWSER_BOUNDARY_TOLERANCE, preserve_topology=True),
+            crs=boundary.crs,
         )
-        boundary.to_file(BROWSER_BOUNDARY_GEOJSON, driver="GeoJSON")
+        os.makedirs(os.path.dirname(BROWSER_BOUNDARY_GEOJSON), exist_ok=True)
+        simplified.to_file(BROWSER_BOUNDARY_GEOJSON, driver="GeoJSON")
     return BROWSER_BOUNDARY_GEOJSON
 
 
@@ -65,14 +76,12 @@ def boundary_bounds() -> tuple[float, float, float, float]:
     return tuple(float(v) for v in _boundary_wgs84().total_bounds)
 
 
-@lru_cache(maxsize=1)
-def _admin1_wgs84() -> gpd.GeoDataFrame:
-    return gpd.read_file(BOUNDARY_ADMIN1_SHP).to_crs("EPSG:4326")
-
-
 def administrative_area(lat: float, lon: float) -> dict | None:
     """Find the local admin1 area containing a WGS84 coordinate."""
-    matches = _admin1_wgs84()[_admin1_wgs84().geometry.covers(Point(lon, lat))]
+    # Read only the provinces whose bounding box holds the point (the shapefile is in WGS84).
+    # Keeping all 63 full-resolution provinces in memory pushed a 512 MB server over its limit.
+    candidates = gpd.read_file(BOUNDARY_ADMIN1_SHP, bbox=(lon, lat, lon, lat)).to_crs("EPSG:4326")
+    matches = candidates[candidates.geometry.covers(Point(lon, lat))]
     if matches.empty:
         return None
     area = matches.iloc[0]
@@ -103,23 +112,26 @@ def boundary_tiles() -> list[str]:
 def _load_clipped_flood() -> tuple:
     if not os.path.exists(LOCAL_RASTER):
         raise FileNotFoundError(LOCAL_RASTER)
-    ensure_boundary_geojson()
     vietnam = gpd.read_file(BOUNDARY_SHP)
 
     with rasterio.open(LOCAL_RASTER) as src:
         # Rasterio requires the boundary and raster to use the same CRS.
         vietnam = vietnam.to_crs(src.crs)
-        geoms = [mapping(g) for g in vietnam.geometry]
-        clipped, transform = mask(src, geoms, crop=True, all_touched=False)
+        # The same window and pixels as rasterio.mask.mask(crop=True), without the masked-array
+        # copies of the whole raster it makes, which pushed a 512 MB server over its limit.
+        outside, transform, window = raster_geometry_mask(src, vietnam.geometry, crop=True, all_touched=False)
+        data = src.read(1, window=window)
         raster_crs = src.crs
 
-    data = clipped[0]
     # Normalize source data into the app convention: 1 = flood, 0 = not flood.
     # Metrics, rendering, and inspection then share the same representation.
-    flood_mask = (data == FLOOD_VALUE).astype(np.uint8)
+    flood = data == FLOOD_VALUE
+    np.logical_not(outside, out=outside)  # in place: now True inside the boundary
+    flood &= outside
+    flood_mask = flood.view(np.uint8)  # bool is already 0/1 bytes; no copy needed
 
     # The transform describes the cropped array's outer edges in the raster CRS.
-    raster_bounds = array_bounds(data.shape[0], data.shape[1], transform)
+    raster_bounds = array_bounds(flood_mask.shape[0], flood_mask.shape[1], transform)
 
     # The API accepts latitude/longitude, so bounds must be returned in WGS84
     # even when the source raster uses a projected CRS.
@@ -136,15 +148,6 @@ def _load_clipped_flood_cached(raster_signature: tuple[int, int]) -> tuple:
 def _raster_signature() -> tuple[int, int]:
     stat = os.stat(LOCAL_RASTER)
     return stat.st_size, stat.st_mtime_ns
-
-
-@lru_cache(maxsize=4)
-def _boundary_geometries_in_raster(crs_name: str) -> tuple[dict, ...]:
-    """Transform boundary geometries once per raster CRS for neighborhood masks."""
-    return tuple(
-        transform_geom("EPSG:4326", crs_name, mapping(geometry))
-        for geometry in _boundary_wgs84().geometry
-    )
 
 
 def load_clipped_flood() -> tuple:
@@ -192,14 +195,22 @@ def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict
         ).intersection(Window(0, 0, src.width, src.height))
         data = src.read(1, window=window)
         source_transform = src.window_transform(window)
-        boundary_in_raster = _boundary_geometries_in_raster(src.crs.to_string())
+        # Rasterize only the boundary around this window (plus a margin). Converting and caching
+        # the whole country's ~700k points instead kept ~120 MB in memory for good.
+        margin = 2 * abs(src.res[0])
+        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.window_bounds(window))
+        nearby = [
+            clip_by_rect(geometry, west - margin, south - margin, east + margin, north + margin)
+            for geometry in _boundary_wgs84().geometry
+        ]
+        shapes = [transform_geom("EPSG:4326", src.crs.to_string(), mapping(g)) for g in nearby if not g.is_empty]
         inside = geometry_mask(
-            boundary_in_raster,
+            shapes,
             out_shape=data.shape,
             transform=source_transform,
             invert=True,
             all_touched=False,
-        )
+        ) if shapes else np.zeros(data.shape, dtype=bool)
 
     class_counts = {
         name: int(((data == value) & inside).sum())

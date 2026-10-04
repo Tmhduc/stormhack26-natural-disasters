@@ -157,3 +157,29 @@ def overlay_png(image_id: int) -> bytes | None:
     stmt = select(ImageRow.data).where(ImageRow.id == image_id, ImageRow.source == SOURCE)
     with _engine().connect() as conn:
         return conn.execute(stmt).scalar_one_or_none()
+
+
+def latest_day() -> dict | None:
+    """The newest saved day of the current product with its GeoTIFF and overlay, or None if there isn't one."""
+    ensure_schema()
+    stmt = (
+        select(ImageRow.id, ImageRow.product, ImageRow.captured_at, ImageRow.west, ImageRow.south,
+               ImageRow.east, ImageRow.north, ImageRow.meta, ImageRow.data, ImageRow.original)
+        .where(ImageRow.source == SOURCE, ImageRow.product == LANCE_PRODUCT,
+               ImageRow.data.isnot(None), ImageRow.original.isnot(None))
+        .order_by(ImageRow.captured_at.desc())
+        .limit(1)
+    )
+    with _engine().connect() as conn:
+        row = conn.execute(stmt).first()
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "product": row.product,
+        "date": row.captured_at.date().isoformat(),
+        "bounds": [row.west, row.south, row.east, row.north],
+        "meta": row.meta,
+        "overlay_png": row.data,
+        "raster": row.original,
+    }

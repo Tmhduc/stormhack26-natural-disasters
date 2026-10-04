@@ -24,12 +24,18 @@ async def lifespan(app: FastAPI):
         except Exception:
             # The app still serves files; the pipeline retries the schema before its next save.
             log.exception("Could not apply db/schema.sql")
+    try:
+        # Boundary files, and the newest saved day when the disk is empty (fresh deploy or wake-up).
+        await asyncio.to_thread(pipeline.prepare)
+    except Exception:
+        log.exception("Could not prepare boundary files")
     # Keep the flood overlay in step with LANCE: fetch on startup, then poll for new/reprocessed tiles.
     # Keep the overlay current with LANCE: run at startup, then poll for new or
     # reprocessed tiles.
     poller = asyncio.create_task(pipeline.poll_forever(LANCE_POLL_MINUTES)) if LANCE_POLL_MINUTES > 0 else None
-    # Let people subscribe to Telegram alerts by messaging the bot /start.
-    listener = asyncio.create_task(telegram.listen_forever()) if telegram.enabled() else None
+    # Let people subscribe to Telegram alerts by messaging the bot /start: by webhook when
+    # deployed with a public URL, by long polling locally.
+    listener = await telegram.start() if telegram.enabled() else None
     yield
     for task in (poller, listener):
         if task:

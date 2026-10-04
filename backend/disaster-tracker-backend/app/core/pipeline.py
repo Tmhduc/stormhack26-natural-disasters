@@ -23,7 +23,7 @@ from app.config import (
     LOCAL_RASTER, STATE_FILE
 )
 from app.core import cache, downloader, history
-from app.core.clipper import boundary_bounds, boundary_tiles
+from app.core.clipper import boundary_bounds, boundary_tiles, ensure_boundary_files
 from app.core.mosaic import build_mosaic
 
 log = logging.getLogger(__name__)
@@ -68,6 +68,55 @@ def _save_history(state: dict) -> None:
         state["db_saved"], state["db_error"] = False, f"{type(e).__name__}: {e}"
 
 
+def _restore_from_history() -> bool:
+    """Put the newest day saved in the database onto this server's disk. Returns whether there was one."""
+    day = history.latest_day()
+    if day is None:
+        return False
+    os.makedirs(os.path.dirname(LOCAL_RASTER), exist_ok=True)
+    partial = LOCAL_RASTER + ".part"
+    with open(partial, "wb") as f:
+        f.write(day["raster"])
+    os.replace(partial, LOCAL_RASTER)
+    meta = day["meta"]
+    cache.store(day["overlay_png"], meta["metrics"], day["bounds"])
+    _write_state({
+        "product": day["product"],
+        "date": day["date"],
+        "tiles": meta.get("tiles", []),
+        "files": meta.get("files", []),
+        "versions": meta.get("versions", {}),  # lets the next run skip the day if LANCE hasn't changed it
+        "metrics": meta["metrics"],
+        "bounds": day["bounds"],
+        "processed_at": meta.get("processed_at"),
+        "restored_at": _now(),
+        "last_error": None,
+        "db_saved": True,
+        "db_image_id": day["id"],
+    })
+    return True
+
+
+def prepare() -> None:
+    """Get a fresh server ready to serve, before it takes requests.
+
+    A new deploy, or a Render instance waking from sleep, starts with an empty disk: no
+    boundary files and no flood data. Restoring the newest saved day from the database
+    serves data within seconds instead of downloading and reprocessing it.
+    """
+    ensure_boundary_files()
+    if (os.path.exists(LOCAL_RASTER) and cache.is_built()) or not history.enabled():
+        return
+    with _lock:
+        try:
+            if _restore_from_history():
+                log.info("Restored the flood data for %s from the database", read_state()["date"])
+            else:
+                log.info("No saved flood data in the database yet; run the pipeline to create some")
+        except Exception:
+            log.exception("Could not restore the latest flood data from the database")
+
+
 def run(day: date | None = None, force: bool = False) -> dict:
     """Synchronize the local flood overlay with LANCE data.
 
@@ -79,6 +128,7 @@ def run(day: date | None = None, force: bool = False) -> dict:
         state = read_state()
         state["checked_at"] = _now()
         try:
+            ensure_boundary_files()
             tiles = LANCE_TILES or boundary_tiles()
             if day is None:
                 day, remote = downloader.find_latest(

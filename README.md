@@ -159,6 +159,36 @@ People subscribe themselves, so nobody has to edit `.env` to add a recipient:
 
 `GET /api/flood/alerts/telegram` returns the subscribe link and the number of chats that will receive alerts.
 
+How the backend receives the bot's messages:
+
+- **Deployed:** when the backend has a public URL, it registers a Telegram webhook on startup. Telegram then sends each message to `/api/flood/alerts/telegram/webhook`. On Render this happens automatically, using the `RENDER_EXTERNAL_URL` Render provides. Elsewhere, set `TELEGRAM_WEBHOOK_BASE_URL` to the backend's public URL. Nothing polls, so overlapping deploys and multiple instances don't conflict.
+- **Locally:** with no public URL, the backend long-polls Telegram instead. Telegram allows only one poller per bot, and none while a webhook is set. While a deployment owns the bot, a local backend logs that the listener stopped and leaves it alone. It can still send alerts.
+
+To go back to local polling after a deployment has set the webhook, delete the webhook: open `https://api.telegram.org/bot<TOKEN>/deleteWebhook` once. The deployment registers it again the next time it starts.
+
+## Deploying on Render
+
+A Render instance starts with an empty disk on every deploy, and every time a free instance wakes from sleep. On startup the backend handles this itself:
+
+- It extracts the boundary shapefiles from `vnm_admin_boundaries.shp.zip`.
+- If no flood data is on disk, it restores the newest day saved in the database: the GeoTIFF, the overlay, the metrics and the pipeline state. The dashboard has data within seconds, with no download or processing.
+
+Peak memory, measured with all the dashboard's requests served:
+
+| Workload | Peak |
+| --- | --- |
+| Serving the dashboard (data, outline, inspect) | about 450 MB |
+| Running the pipeline in the server (**Refresh**, or polling) | about 500 MB |
+| Running the pipeline on its own (`python -m app.core.pipeline`) | about 460 MB |
+
+A 512 MB instance can run the pipeline, but with almost nothing to spare. Use a 1 GB or larger instance if you want Render to process new data itself. On a 512 MB instance:
+
+- Set `LANCE_POLL_MINUTES=0`.
+- Run the pipeline somewhere else, pointed at the same `DATABASE_URL`.
+- Restart or redeploy the Render service to pick up the new day.
+
+If a Render deploy shows only 502 pages with the header `x-render-routing: no-deploy`, no instance is running. Check the service's Events and Logs for an out-of-memory restart.
+
 ## Team workflow
 
 Pull the latest branch before starting work:

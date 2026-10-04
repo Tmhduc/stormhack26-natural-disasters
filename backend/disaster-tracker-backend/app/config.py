@@ -31,10 +31,15 @@ TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 # Optional: one chat that always gets alerts. Everyone else subscribes by sending /start to the bot.
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# This backend's public URL. When known, Telegram pushes bot messages to a webhook instead of
+# being long-polled. Render sets RENDER_EXTERNAL_URL itself; locally it's unset, so the backend polls.
+TELEGRAM_WEBHOOK_BASE_URL = os.getenv("TELEGRAM_WEBHOOK_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL")
 
 RAW_DIR = os.path.join(DATA_DIR, "raw")  # Downloaded LANCE tiles, grouped by day.
 STATE_FILE = os.path.join(DATA_DIR, "pipeline_state.json")
 LOCAL_RASTER = os.path.join(DATA_DIR, "vietnam_flood.tif")  # Boundary-limited tile mosaic.
+# Committed to Git; extracted into data/vietnam_boundary on first use (data/ itself is not committed).
+BOUNDARY_ZIP = os.path.join(BASE_DIR, "vnm_admin_boundaries.shp.zip")
 BOUNDARY_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin0.shp")
 BOUNDARY_ADMIN1_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin1.shp")
 BOUNDARY_GEOJSON = os.path.join(DATA_DIR, "vietnam_boundary", "vietnam.geojson")

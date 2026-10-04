@@ -2,10 +2,17 @@
 
 Only TELEGRAM_BOT_TOKEN has to be configured. Subscribed chats live in the
 telegram_subscribers table, so adding a recipient never means editing .env.
-The listener long-polls Telegram's getUpdates, so it works without a public URL.
+
+The bot's messages reach the backend one of two ways (see start()):
+- Deployed with a public URL (Render sets RENDER_EXTERNAL_URL): Telegram pushes them to a
+  webhook. Nothing polls, so overlapping deploys or several instances can't conflict.
+- Locally: the backend long-polls getUpdates. Telegram allows one poller per bot, and none
+  while a webhook is set, so a local listener steps aside when a deployment owns the bot.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 
@@ -14,7 +21,7 @@ import requests
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from app.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_BASE_URL
 from app.core import history
 from db.db import TelegramSubscriberRow
 
@@ -24,6 +31,10 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 LONG_POLL_SECONDS = 25
+WEBHOOK_PATH = "/api/flood/alerts/telegram/webhook"  # served by app/routes/flood.py
+# Telegram echoes this in a header on every webhook call, proving the call came from Telegram.
+# Derived from the bot token, so every instance agrees on it without another setting.
+WEBHOOK_SECRET = hashlib.sha256(f"webhook:{TELEGRAM_BOT_TOKEN}".encode()).hexdigest()
 
 SUBSCRIBED = (
     "You're subscribed to DisTrack flood alerts for Vietnam. You'll get a message whenever "
@@ -118,18 +129,40 @@ def _reply_to(command: str, chat: dict) -> str | None:
         return FAILED
 
 
-async def _handle(client: httpx.AsyncClient, message: dict | None) -> None:
+async def handle_update(update: dict) -> dict | None:
+    """Work out the bot's answer to one update: sendMessage parameters, or None to stay quiet."""
+    message = update.get("message")
     if not message or not message.get("text", "").strip():
-        return
+        return None
     # "/start@distrack2_bot extra words" -> "/start"
     command = message["text"].split()[0].split("@")[0].lower()
     reply = await asyncio.to_thread(_reply_to, command, message["chat"])
-    if reply:
-        await client.post(f"{API}/sendMessage", json={"chat_id": message["chat"]["id"], "text": reply})
+    return {"chat_id": message["chat"]["id"], "text": reply} if reply else None
+
+
+def webhook_url() -> str | None:
+    return TELEGRAM_WEBHOOK_BASE_URL.rstrip("/") + WEBHOOK_PATH if TELEGRAM_WEBHOOK_BASE_URL else None
+
+
+def is_from_telegram(secret_header: str | None) -> bool:
+    return hmac.compare_digest(secret_header or "", WEBHOOK_SECRET)
+
+
+async def register_webhook(url: str) -> None:
+    """Have Telegram push the bot's messages to `url`. Safe to repeat, e.g. on every deploy."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            f"{API}/setWebhook",
+            json={"url": url, "secret_token": WEBHOOK_SECRET, "allowed_updates": ["message"]},
+        )
+    body = response.json()
+    if not body.get("ok"):
+        raise RuntimeError(f"Telegram refused the webhook: {body.get('description')}")
+    log.info("Telegram webhook set to %s", url)
 
 
 async def listen_forever() -> None:
-    """Answer /start and /stop for as long as the API runs."""
+    """Long-poll for /start and /stop for as long as the API runs (local development)."""
     offset = None
     async with httpx.AsyncClient(timeout=LONG_POLL_SECONDS + 10) as client:
         while True:
@@ -139,15 +172,35 @@ async def listen_forever() -> None:
                     params["offset"] = offset  # also tells Telegram the earlier updates were handled
                 body = (await client.get(f"{API}/getUpdates", params=params)).json()
                 if not body.get("ok"):
-                    # 409 means another process is polling this bot, or a webhook is set on it.
-                    log.warning("Telegram getUpdates failed: %s", body.get("description"))
-                    await asyncio.sleep(10)
+                    description = body.get("description", "")
+                    if "webhook is active" in description:
+                        # A deployed backend receives this bot's messages; don't take them over.
+                        log.info("Telegram bot is in webhook mode, so a deployed backend answers /start; "
+                                 "local listener stopped. Sending alerts still works.")
+                        return
+                    # Most likely 409: another process is long-polling this bot.
+                    log.warning("Telegram getUpdates failed: %s", description)
+                    await asyncio.sleep(30)
                     continue
                 for update in body["result"]:
                     offset = update["update_id"] + 1
-                    await _handle(client, update.get("message"))
+                    reply = await handle_update(update)
+                    if reply:
+                        await client.post(f"{API}/sendMessage", json=reply)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.exception("Telegram listener error; retrying in 10 s")
                 await asyncio.sleep(10)
+
+
+async def start() -> asyncio.Task | None:
+    """Begin answering /start and /stop. Returns the long-polling task to cancel at shutdown, if any."""
+    url = webhook_url()
+    if url is None:
+        return asyncio.create_task(listen_forever())
+    try:
+        await register_webhook(url)
+    except Exception:
+        log.exception("Could not register the Telegram webhook; /start and /stop won't be answered")
+    return None
