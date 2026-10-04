@@ -26,7 +26,7 @@ export function useLocationInspector() {
     setInspection(null);
     setError("");
   }
-  async function inspect() {
+  async function inspect(historyId: number | null = null) {
     const latitude = Number(lat),
       longitude = Number(lon);
     if (inspectingRef.current) return;
@@ -46,9 +46,11 @@ export function useLocationInspector() {
     setError("");
     setInspection(null);
     try {
+      const params = new URLSearchParams({ lat: String(latitude), lon: String(longitude) });
+      if (historyId !== null) params.set("history_id", String(historyId));
       setInspection(
         await request<Inspection>(
-          `/api/flood/inspect?lat=${latitude}&lon=${longitude}`
+          `/api/flood/inspect?${params.toString()}`
         )
       );
     } catch (e) {

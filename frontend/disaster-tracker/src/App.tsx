@@ -67,6 +67,7 @@ function App() {
       };
   const canPlot = !!overlay && geographic(overlay.bounds);
   const imageError = !!overlay && brokenImage === overlay.png_url;
+  const inspectDisabled = busy || !metrics || !geographic(metrics.bounds);
   // New data or another day makes any earlier inspection result stale.
   function reload(refresh = false) {
     inspector.clearResult();
@@ -106,7 +107,8 @@ function App() {
           <FloodMap
             inspector={inspector}
             acquisitionDate={metrics?.date || null}
-            inspectDisabled={busy || !flood.metrics || !geographic(flood.metrics.bounds) || !!pastDay}
+            inspectDisabled={inspectDisabled}
+            inspectionHistoryId={pastDay?.id ?? null}
             boundary={flood.boundary}
             overlay={overlay}
             archiveDate={pastDay ? pastDay.date : null}
@@ -123,11 +125,12 @@ function App() {
             <InspectPanel
               inspector={inspector}
               disabled={
-                busy || !flood.metrics || !geographic(flood.metrics.bounds) || !!pastDay
+                inspectDisabled
               }
+              historyId={pastDay?.id ?? null}
               notice={
                 pastDay
-                  ? "Inspection checks the latest data. Select “Latest” under Flood history to inspect a location."
+                  ? "Inspection uses the raster saved for this historical date."
                   : undefined
               }
               observedDate={metrics?.date ?? null}

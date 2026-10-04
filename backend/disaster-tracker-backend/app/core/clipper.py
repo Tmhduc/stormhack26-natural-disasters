@@ -160,57 +160,60 @@ def load_clipped_flood_with_metadata() -> tuple:
     return _load_clipped_flood_cached(_raster_signature())
 
 
-def inspect_flood_point(lat: float, lon: float) -> int | None:
+def _read_flood_point(lat: float, lon: float, src) -> int | None:
+    """Read one source raster class after the boundary check."""
+    x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
+    row, column = src.index(x[0], y[0])
+    if not (0 <= row < src.height and 0 <= column < src.width):
+        return None
+    value = src.read(1, window=Window(column, row, 1, 1))[0, 0]
+    return int(value)
+
+
+def inspect_flood_point(lat: float, lon: float, dataset=None) -> int | None:
     """Read the original product class at a WGS84 coordinate."""
     if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
         return None
 
+    if dataset is not None:
+        return _read_flood_point(lat, lon, dataset)
     with rasterio.open(LOCAL_RASTER) as src:
-        x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
-        row, column = src.index(x[0], y[0])
-        if not (0 <= row < src.height and 0 <= column < src.width):
-            return None
-        value = src.read(1, window=Window(column, row, 1, 1))[0, 0]
-    return int(value)
+        return _read_flood_point(lat, lon, src)
 
 
-def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict | None:
-    """Count product classes in a small neighborhood around a WGS84 point."""
-    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+def _read_flood_neighborhood(lat: float, lon: float, radius_km: float, src) -> dict | None:
+    """Count product classes in a small neighborhood using an open raster."""
+    x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
+    row, column = src.index(x[0], y[0])
+    if not (0 <= row < src.height and 0 <= column < src.width):
         return None
 
-    with rasterio.open(LOCAL_RASTER) as src:
-        x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
-        row, column = src.index(x[0], y[0])
-        if not (0 <= row < src.height and 0 <= column < src.width):
-            return None
-
-        meters_per_pixel = abs(src.res[1]) * 111_320
-        pixel_radius = max(1, math.ceil(radius_km * 1000 / meters_per_pixel))
-        window = Window(
-            column - pixel_radius,
-            row - pixel_radius,
-            pixel_radius * 2 + 1,
-            pixel_radius * 2 + 1,
-        ).intersection(Window(0, 0, src.width, src.height))
-        data = src.read(1, window=window)
-        source_transform = src.window_transform(window)
-        # Rasterize only the boundary around this window (plus a margin). Converting and caching
-        # the whole country's ~700k points instead kept ~120 MB in memory for good.
-        margin = 2 * abs(src.res[0])
-        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.window_bounds(window))
-        nearby = [
-            clip_by_rect(geometry, west - margin, south - margin, east + margin, north + margin)
-            for geometry in _boundary_wgs84().geometry
-        ]
-        shapes = [transform_geom("EPSG:4326", src.crs.to_string(), mapping(g)) for g in nearby if not g.is_empty]
-        inside = geometry_mask(
-            shapes,
-            out_shape=data.shape,
-            transform=source_transform,
-            invert=True,
-            all_touched=False,
-        ) if shapes else np.zeros(data.shape, dtype=bool)
+    meters_per_pixel = abs(src.res[1]) * 111_320
+    pixel_radius = max(1, math.ceil(radius_km * 1000 / meters_per_pixel))
+    window = Window(
+        column - pixel_radius,
+        row - pixel_radius,
+        pixel_radius * 2 + 1,
+        pixel_radius * 2 + 1,
+    ).intersection(Window(0, 0, src.width, src.height))
+    data = src.read(1, window=window)
+    source_transform = src.window_transform(window)
+    # Rasterize only the boundary around this window (plus a margin). Converting and caching
+    # the whole country's ~700k points instead kept ~120 MB in memory for good.
+    margin = 2 * abs(src.res[0])
+    west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.window_bounds(window))
+    nearby = [
+        clip_by_rect(geometry, west - margin, south - margin, east + margin, north + margin)
+        for geometry in _boundary_wgs84().geometry
+    ]
+    shapes = [transform_geom("EPSG:4326", src.crs.to_string(), mapping(g)) for g in nearby if not g.is_empty]
+    inside = geometry_mask(
+        shapes,
+        out_shape=data.shape,
+        transform=source_transform,
+        invert=True,
+        all_touched=False,
+    ) if shapes else np.zeros(data.shape, dtype=bool)
 
     class_counts = {
         name: int(((data == value) & inside).sum())
@@ -222,3 +225,14 @@ def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict
         "class_counts": class_counts,
         "flood_pixels": sum(class_counts.get(MCDWD_CLASS_NAMES[value], 0) for value in MCDWD_FLOOD_CLASSES),
     }
+
+
+def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float, dataset=None) -> dict | None:
+    """Count product classes in a small neighborhood around a WGS84 point."""
+    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+        return None
+
+    if dataset is not None:
+        return _read_flood_neighborhood(lat, lon, radius_km, dataset)
+    with rasterio.open(LOCAL_RASTER) as src:
+        return _read_flood_neighborhood(lat, lon, radius_km, src)

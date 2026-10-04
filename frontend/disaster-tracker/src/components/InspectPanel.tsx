@@ -8,6 +8,7 @@ const PIXEL_AREA_KM2 = 0.0625;
 type Props = {
   inspector: LocationInspector;
   disabled: boolean;
+  historyId: number | null;
   notice?: string; // shown in place of the result, e.g. why inspecting is unavailable
   observedDate: string | null; // date of the satellite data, included in the Telegram message
   telegramRecipients: number | null;
@@ -41,7 +42,7 @@ function nearbyMessage(inspection: NonNullable<LocationInspector["inspection"]>)
   return `Nearby satellite signal: about ${area} km² may be affected by flooding within ${inspection.nearby_radius_km} km (${share}% of the checked area).`;
 }
 
-export default function InspectPanel({ inspector, disabled, notice, observedDate, telegramRecipients }: Props) {
+export default function InspectPanel({ inspector, disabled, historyId, notice, observedDate, telegramRecipients }: Props) {
   const { lat, lon, setLat, setLon, select, inspect, inspecting } = inspector;
   return (
     <section className="tool-card" id="inspect">
@@ -62,7 +63,7 @@ export default function InspectPanel({ inspector, disabled, notice, observedDate
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void inspect();
+          void inspect(historyId);
         }}
       >
         <div className="coordinates">

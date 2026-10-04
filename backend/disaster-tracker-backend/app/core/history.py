@@ -159,6 +159,18 @@ def overlay_png(image_id: int) -> bytes | None:
         return conn.execute(stmt).scalar_one_or_none()
 
 
+def original_raster(image_id: int) -> bytes | None:
+    """Return the source GeoTIFF for one saved LANCE day, if available."""
+    ensure_schema()
+    stmt = select(ImageRow.original).where(
+        ImageRow.id == image_id,
+        ImageRow.source == SOURCE,
+        ImageRow.product == LANCE_PRODUCT,
+    )
+    with _engine().connect() as conn:
+        return conn.execute(stmt).scalar_one_or_none()
+
+
 def latest_day() -> dict | None:
     """The newest saved day of the current product with its GeoTIFF and overlay, or None if there isn't one."""
     ensure_schema()
