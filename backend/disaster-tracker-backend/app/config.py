@@ -25,6 +25,7 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 DATABASE_URL = os.getenv("DATABASE_URL")  # unset = keep flood history on disk only
 NASA_TOKEN = os.getenv("NASA_TOKEN")
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
 RAW_DIR = os.path.join(DATA_DIR, "raw")  # tile LANCE tải về, chia theo từng ngày
 STATE_FILE = os.path.join(DATA_DIR, "pipeline_state.json")

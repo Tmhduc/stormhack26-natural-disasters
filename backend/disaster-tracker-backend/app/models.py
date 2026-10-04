@@ -48,6 +48,7 @@ class InspectResponse(BaseModel):
     admin1_name: Optional[str] = None
     admin1_type: Optional[str] = None
     admin1_pcode: Optional[str] = None
+    address: Optional[str] = None
     nearby_radius_km: Optional[float] = None
     nearby_pixels: Optional[int] = None
     nearby_flood_pixels: Optional[int] = None

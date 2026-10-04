@@ -16,16 +16,17 @@ function resultMessage({ inspection, error }: LocationInspector, notice?: string
     );
   const where = `${inspection.lat.toFixed(4)}, ${inspection.lon.toFixed(4)}`;
   if (!inspection.inside) return `${where}: Outside raster coverage.`;
+  const address = inspection.address ? `${inspection.address} · ` : "";
   const area = inspection.admin1_name ? `${inspection.admin1_name} · ` : "";
   const classDetails = inspection.class_name
     ? `Class ${inspection.class_value} (${inspection.class_name})`
     : "Unknown class";
   if (inspection.flooded === null) {
-    return `${area}${where}: ${classDetails}; insufficient data. ${nearbyMessage(inspection)}`;
+    return `${address}${area}${where}: ${classDetails}; insufficient data. ${nearbyMessage(inspection)}`;
   }
   return inspection.flooded
-    ? `${area}${where}: ${classDetails}; flood detected. ${nearbyMessage(inspection)}`
-    : `${area}${where}: ${classDetails}; no unusual flood. ${nearbyMessage(inspection)}`;
+    ? `${address}${area}${where}: ${classDetails}; flood detected. ${nearbyMessage(inspection)}`
+    : `${address}${area}${where}: ${classDetails}; no unusual flood. ${nearbyMessage(inspection)}`;
 }
 
 function nearbyMessage(inspection: NonNullable<LocationInspector["inspection"]>) {
@@ -47,6 +48,7 @@ export default function InspectPanel({ inspector, disabled, notice }: Props) {
         {places.map((p) => (
           <button key={p.name} onClick={() => select(p.lat, p.lon)}>
             {p.name}
+            <small>{p.englishName}</small>
           </button>
         ))}
       </div>

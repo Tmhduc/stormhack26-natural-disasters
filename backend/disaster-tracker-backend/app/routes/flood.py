@@ -14,6 +14,7 @@ from app.core.clipper import (
     inspect_flood_point,
 )
 from app.core.downloader import LanceError
+from app.core.geocoder import forward_geocode, reverse_geocode
 from app.models import FloodMetrics, OverlayResponse, InspectResponse
 
 router = APIRouter(prefix="/api/flood", tags=["flood"])
@@ -82,6 +83,12 @@ def status():
     }
 
 
+@router.get("/geocode")
+def geocode(q: str = Query(..., min_length=3, max_length=200)):
+    """Search Vietnamese addresses through the optional Google geocoder."""
+    return forward_geocode(q)
+
+
 @router.get("/inspect", response_model=InspectResponse)
 def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
     # Chỉ đọc một pixel trong GeoTIFF; metrics và overlay mới cần toàn bộ mask.
@@ -92,6 +99,7 @@ def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
     class_name = MCDWD_CLASS_NAMES.get(flooded, "unknown")
     is_flood = None if flooded == 255 else flooded in MCDWD_FLOOD_CLASSES
     area = administrative_area(lat, lon)
+    address = reverse_geocode(lat, lon)
     nearby = inspect_flood_neighborhood(lat, lon, radius_km)
     return InspectResponse(
         inside=True,
@@ -101,6 +109,7 @@ def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
         admin1_name=area["name"] if area else None,
         admin1_type=area["type"] if area else None,
         admin1_pcode=area["pcode"] if area else None,
+        address=address,
         nearby_radius_km=nearby["radius_km"] if nearby else None,
         nearby_pixels=nearby["pixels"] if nearby else None,
         nearby_flood_pixels=nearby["flood_pixels"] if nearby else None,

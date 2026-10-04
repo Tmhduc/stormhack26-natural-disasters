@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import type { Boundary, Overlay } from "../api";
+import { request, type Boundary, type GeocodeResult, type Overlay } from "../api";
 import type { LocationInspector } from "../hooks/useLocationInspector";
 import { formatDay } from "../lib/format";
 import {
@@ -49,6 +49,9 @@ export default function FloodMap({
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [search, setSearch] = useState("");
+  const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
+  const [searchingAddress, setSearchingAddress] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [center, setCenter] = useState({ x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 });
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ id: number; x: number; y: number; cx: number; cy: number; inverse: DOMMatrix; moved: boolean } | null>(null);
@@ -59,8 +62,22 @@ export default function FloodMap({
   const svg = useRef<SVGSVGElement>(null);
   const paths = useMemo(() => boundaryPaths(boundary), [boundary]);
   const searchResults = places.filter((place) =>
-    place.name.toLowerCase().includes(search.trim().toLowerCase())
+    `${place.name} ${place.englishName}`.toLowerCase().includes(search.trim().toLowerCase())
   );
+  async function searchAddress() {
+    const query = search.trim();
+    if (query.length < 3) return;
+    setSearchingAddress(true);
+    setSearchError("");
+    try {
+      setAddressResults(await request<GeocodeResult[]>(`/api/flood/geocode?q=${encodeURIComponent(query)}`));
+    } catch (error) {
+      setAddressResults([]);
+      setSearchError(error instanceof Error ? error.message : "Address search unavailable.");
+    } finally {
+      setSearchingAddress(false);
+    }
+  }
   const vbWidth = MAP_WIDTH / zoom,
     vbHeight = MAP_HEIGHT / zoom;
   const result = !archiveDate && inspector.inspection?.lat === Number(lat) && inspector.inspection?.lon === Number(lon) ? inspector.inspection : null;
@@ -126,12 +143,16 @@ export default function FloodMap({
         <input
           id="map-search"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Hanoi, Da Nang..."
+          onChange={(event) => { setSearch(event.target.value); setAddressResults([]); setSearchError(""); }}
+          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchAddress(); } }}
+          placeholder="Search city or street address..."
         />
+        <button className="address-search-button" type="button" disabled={searchingAddress || search.trim().length < 3} onClick={() => void searchAddress()}>
+          {searchingAddress ? "…" : "Search"}
+        </button>
         {search.trim() && (
           <div className="search-results">
-            {searchResults.length ? (
+            {searchResults.length || addressResults.length ? (
               searchResults.map((place) => (
                 <button
                   key={place.name}
@@ -145,10 +166,16 @@ export default function FloodMap({
                     {place.lat.toFixed(4)}, {place.lon.toFixed(4)}
                   </small>
                 </button>
-              ))
+              )).concat(addressResults.map((result) => (
+                <button key={`${result.lat},${result.lon}`} onClick={() => { onSelect(result.lat, result.lon); setSearch(result.address); setAddressResults([]); }}>
+                  {result.address}
+                  <small>{result.lat.toFixed(4)}, {result.lon.toFixed(4)}</small>
+                </button>
+              )))
             ) : (
-              <p>Không tìm thấy địa điểm.</p>
+              <p>{searchError || "Press Search or Enter to find an address."}</p>
             )}
+            {searchError && <p>{searchError}</p>}
           </div>
         )}
       </div>
@@ -186,10 +213,10 @@ export default function FloodMap({
         >
           <defs>
             <pattern id="grid" width="54" height="38" patternUnits="userSpaceOnUse">
-              <path d="M54 0H0V38" fill="none" stroke="#d7e1df" strokeWidth="0.5" />
+              <path d="M54 0H0V38" fill="none" stroke="#c3d5da" strokeWidth="0.6" />
             </pattern>
           </defs>
-          <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="#eaf1f0" />
+          <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="#dcebef" />
           <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#grid)" />
           <text x="28" y="240" className="country-label">
             LAOS
@@ -211,9 +238,9 @@ export default function FloodMap({
               <path
                 key={i}
                 d={d}
-                fill="#fbfcf6"
-                stroke="#a5b7ae"
-                strokeWidth="1.4"
+                fill="#f8fbf3"
+                stroke="#527463"
+                strokeWidth="2.2"
                 fillRule="evenodd"
               />
             ))
@@ -221,9 +248,9 @@ export default function FloodMap({
             <>
               <path
                 d="M205 92L249 55L287 70L310 93L335 85L330 128L293 167L289 194L302 219L322 247L347 266L355 304L380 342L388 391L381 436L346 471L306 503L284 540L252 570L219 559L221 531L239 510L254 476L293 450L327 420L335 384L324 342L302 313L283 292L268 258L257 218L238 187L233 153L204 131Z"
-                fill="#fbfcf6"
-                stroke="#a5b7ae"
-                strokeWidth="1.4"
+                fill="#f8fbf3"
+                stroke="#527463"
+                strokeWidth="2.2"
               />
               <text x="24" y="615" className="map-note">
                 Illustrative outline · load boundary for precise geography
@@ -239,6 +266,7 @@ export default function FloodMap({
               height={latToY(overlay.bounds[1]) - latToY(overlay.bounds[3])}
               preserveAspectRatio="none"
               opacity={opacity / 100}
+              style={{ filter: "saturate(1.45) contrast(1.2)" }}
               onError={onImageError}
             />
           )}
@@ -247,10 +275,10 @@ export default function FloodMap({
               <circle
                 cx={lonToX(p.lon)}
                 cy={latToY(p.lat)}
-                r="4"
-                fill="#326c5d"
-                stroke="white"
-                strokeWidth="2"
+                r="5"
+                fill="#173f5f"
+                stroke="#ffffff"
+                strokeWidth="2.5"
               />
               <text x={lonToX(p.lon) + 10} y={latToY(p.lat) + 4} className="city-label">
                 {p.name}
@@ -262,11 +290,12 @@ export default function FloodMap({
               <circle
                 cx={lonToX(Number(lon))}
                 cy={latToY(Number(lat))}
-                r="7"
-                fill="#286d5e22"
-                stroke="#286d5e"
+                r="9"
+                fill="#f4b94255"
+                stroke="#a85b00"
+                strokeWidth="2"
               />
-              <circle cx={lonToX(Number(lon))} cy={latToY(Number(lat))} r="2.5" fill="#286d5e" />
+              <circle cx={lonToX(Number(lon))} cy={latToY(Number(lat))} r="3.5" fill="#a85b00" stroke="#fff" strokeWidth="1.5" />
             </g>
           )}
         </svg>
@@ -295,6 +324,8 @@ export default function FloodMap({
         {fullscreen && <div className="selected-location" aria-live="polite">
           <div className="eyebrow">SELECTED LOCATION</div>
           <strong>{lat.trim() && lon.trim() && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) ? `${Number(lat).toFixed(4)} lat / ${Number(lon).toFixed(4)} lon` : 'Select a point on the map'}</strong>
+          {result?.admin1_name && <div className="selected-place">📍 {result.admin1_type || 'Khu vực'}: <strong>{result.admin1_name}</strong></div>}
+          {result?.address && <div className="selected-address">{result.address}</div>}
           <p>{archiveDate ? 'Historical view · inspection is available for Latest only.' : inspector.inspecting ? 'Inspecting satellite pixel…' : result ? !result.inside ? 'Outside raster coverage' : result.flooded === null ? 'Classification unavailable' : result.flooded ? 'Flood-classified pixel detected' : 'No flood-classified pixel detected' : 'Not inspected yet'}</p>
           {result?.class_name && <small>Classification: {result.class_name}</small>}
           <small>Acquisition: {acquisitionDate || 'unavailable'} · UTC</small>

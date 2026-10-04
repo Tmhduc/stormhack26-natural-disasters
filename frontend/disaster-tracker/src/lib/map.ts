@@ -10,9 +10,9 @@ export const xToLon = (x: number) => 101 + x / 54;
 export const yToLat = (y: number) => 25 - y / 38;
 
 export const places = [
-  { name: "Hanoi", lat: 21.0285, lon: 105.8542 },
-  { name: "Da Nang", lat: 16.0544, lon: 108.2022 },
-  { name: "Ho Chi Minh City", lat: 10.8231, lon: 106.6297 },
+  { name: "Hà Nội", englishName: "Hanoi", lat: 21.0285, lon: 105.8542 },
+  { name: "Đà Nẵng", englishName: "Da Nang", lat: 16.0544, lon: 108.2022 },
+  { name: "TP. Hồ Chí Minh", englishName: "Ho Chi Minh City", lat: 10.8231, lon: 106.6297 },
 ];
 
 /** One SVG path per polygon in the boundary GeoJSON. */
