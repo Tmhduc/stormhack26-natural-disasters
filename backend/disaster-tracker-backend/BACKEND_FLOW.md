@@ -44,6 +44,8 @@ mới cắt theo boundary Việt Nam.
 Các cấu hình chính:
 
 - `NASA_TOKEN`: bearer token dùng khi gọi API hoặc archive LANCE.
+- Token phải được đặt trong biến môi trường hoặc file `.env`; backend không đọc
+      token từ thư mục `data/`.
 - `LANCE_PRODUCT`: mặc định là `MCDWD_L3_F2_NRT`.
 - `LANCE_TILES`: danh sách tile cho phép, phân cách bằng dấu phẩy. Nếu để
   rỗng, backend tự tính các tile giao với boundary Việt Nam.
@@ -66,6 +68,14 @@ cache/flood_overlay.png            ảnh overlay trong suốt
 cache/metrics.json                 số liệu diện tích và số pixel
 cache/bounds.json                  bounds WGS84 của overlay
 cache/manifest.json                fingerprint của dữ liệu tạo cache
+```
+
+Các file trong danh sách trên là artifact runtime, không phải tất cả đều có
+sẵn ngay sau khi clone repository. Chúng chỉ xuất hiện sau khi pipeline chạy
+thành công ít nhất một lần. Lệnh chạy thủ công là:
+
+```bash
+uv run python -m app.core.pipeline --force
 ```
 
 Các hằng số cũ `TILE_ID`, `YEAR`, `DOY` và `TILE_URL` vẫn còn trong
