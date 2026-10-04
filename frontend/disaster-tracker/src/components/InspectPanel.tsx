@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { LocationInspector } from "../hooks/useLocationInspector";
 import { places } from "../lib/map";
 import { floodClassLabel } from "../lib/floodLanguage";
 import TelegramButton from "./TelegramButton";
+import type { Inspection } from "../api";
 
 const PIXEL_AREA_KM2 = 0.0625;
 
@@ -9,6 +11,8 @@ type Props = {
   inspector: LocationInspector;
   disabled: boolean;
   historyId: number | null;
+  saved: boolean;
+  onSave: (inspection: Inspection) => Promise<void>;
   notice?: string; // shown in place of the result, e.g. why inspecting is unavailable
   observedDate: string | null; // date of the satellite data, included in the Telegram message
   telegramRecipients: number | null;
@@ -42,8 +46,24 @@ function nearbyMessage(inspection: NonNullable<LocationInspector["inspection"]>)
   return `Nearby satellite signal: about ${area} km² may be affected by flooding within ${inspection.nearby_radius_km} km (${share}% of the checked area).`;
 }
 
-export default function InspectPanel({ inspector, disabled, historyId, notice, observedDate, telegramRecipients }: Props) {
+export default function InspectPanel({ inspector, disabled, historyId, saved, onSave, notice, observedDate, telegramRecipients }: Props) {
   const { lat, lon, setLat, setLon, select, inspect, inspecting } = inspector;
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  async function saveLocation() {
+    if (!inspector.inspection?.inside || saved || saving) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await onSave(inspector.inspection);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Could not save this location.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="tool-card" id="inspect">
       <div className="eyebrow">EXPLORE THE DATA</div>
@@ -99,6 +119,14 @@ export default function InspectPanel({ inspector, disabled, historyId, notice, o
       <div className="inspect-result" role="status">
         {resultMessage(inspector, notice)}
       </div>
+      {inspector.inspection?.inside && (
+        <>
+          <button type="button" className="primary full" disabled={saved || saving} onClick={() => void saveLocation()}>
+            {saved ? "Location saved" : saving ? "Saving location…" : "Save location"}
+          </button>
+          {saveError && <small className="sms-status" role="alert">{saveError}</small>}
+        </>
+      )}
       <TelegramButton
         inspection={inspector.inspection}
         observedDate={observedDate}
