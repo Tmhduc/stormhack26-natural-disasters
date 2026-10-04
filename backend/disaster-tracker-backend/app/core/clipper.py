@@ -12,6 +12,7 @@ from rasterio.transform import array_bounds
 from rasterio.warp import transform as transform_coordinates
 from rasterio.warp import transform_bounds, transform_geom
 from rasterio.windows import Window
+from shapely import clip_by_rect
 from shapely.geometry import Point, box, mapping
 
 from app.config import (
@@ -149,15 +150,6 @@ def _raster_signature() -> tuple[int, int]:
     return stat.st_size, stat.st_mtime_ns
 
 
-@lru_cache(maxsize=4)
-def _boundary_geometries_in_raster(crs_name: str) -> tuple[dict, ...]:
-    """Transform boundary geometries once per raster CRS for neighborhood masks."""
-    return tuple(
-        transform_geom("EPSG:4326", crs_name, mapping(geometry))
-        for geometry in _boundary_wgs84().geometry
-    )
-
-
 def load_clipped_flood() -> tuple:
     flood_mask, _, _, bounds = _load_clipped_flood_cached(_raster_signature())
     return flood_mask, bounds
@@ -203,14 +195,22 @@ def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict
         ).intersection(Window(0, 0, src.width, src.height))
         data = src.read(1, window=window)
         source_transform = src.window_transform(window)
-        boundary_in_raster = _boundary_geometries_in_raster(src.crs.to_string())
+        # Rasterize only the boundary around this window (plus a margin). Converting and caching
+        # the whole country's ~700k points instead kept ~120 MB in memory for good.
+        margin = 2 * abs(src.res[0])
+        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.window_bounds(window))
+        nearby = [
+            clip_by_rect(geometry, west - margin, south - margin, east + margin, north + margin)
+            for geometry in _boundary_wgs84().geometry
+        ]
+        shapes = [transform_geom("EPSG:4326", src.crs.to_string(), mapping(g)) for g in nearby if not g.is_empty]
         inside = geometry_mask(
-            boundary_in_raster,
+            shapes,
             out_shape=data.shape,
             transform=source_transform,
             invert=True,
             all_touched=False,
-        )
+        ) if shapes else np.zeros(data.shape, dtype=bool)
 
     class_counts = {
         name: int(((data == value) & inside).sum())

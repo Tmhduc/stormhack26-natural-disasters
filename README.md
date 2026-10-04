@@ -173,13 +173,21 @@ A Render instance starts with an empty disk on every deploy, and every time a fr
 - It extracts the boundary shapefiles from `vnm_admin_boundaries.shp.zip`.
 - If no flood data is on disk, it restores the newest day saved in the database: the GeoTIFF, the overlay, the metrics and the pipeline state. The dashboard has data within seconds, with no download or processing.
 
-The pipeline itself needs about 6 GB of memory at its peak, far more than a 512 MB instance. So:
+Peak memory, measured with all the dashboard's requests served:
 
-- On Render, set `LANCE_POLL_MINUTES=0` and don't use **Refresh satellite data** there.
-- Run the pipeline on a machine with enough memory (`uv run python -m app.core.pipeline`), pointed at the same `DATABASE_URL`.
-- After the pipeline saves a new day, restart or redeploy the Render service so it picks up that day.
+| Workload | Peak |
+| --- | --- |
+| Serving the dashboard (data, outline, inspect) | about 450 MB |
+| Running the pipeline in the server (**Refresh**, or polling) | about 500 MB |
+| Running the pipeline on its own (`python -m app.core.pipeline`) | about 460 MB |
 
-Serving the dashboard (data, outline and inspect) peaks at about 480 MB.
+A 512 MB instance can run the pipeline, but with almost nothing to spare. Use a 1 GB or larger instance if you want Render to process new data itself. On a 512 MB instance:
+
+- Set `LANCE_POLL_MINUTES=0`.
+- Run the pipeline somewhere else, pointed at the same `DATABASE_URL`.
+- Restart or redeploy the Render service to pick up the new day.
+
+If a Render deploy shows only 502 pages with the header `x-render-routing: no-deploy`, no instance is running. Check the service's Events and Logs for an out-of-memory restart.
 
 ## Team workflow
 
