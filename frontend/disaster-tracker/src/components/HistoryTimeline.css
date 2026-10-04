@@ -1,0 +1,74 @@
+.history {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 14px;
+  padding: 14px 20px;
+  background: #fff;
+  border: 1px solid #e0e6df;
+  border-radius: 8px;
+}
+.history-head {
+  flex: none;
+}
+.history-head strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+.history-head span {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #8b958e;
+}
+.history-days {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 4px;
+}
+.history-day {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  border: 1px solid #dfe6dc;
+  background: #f7f9f4;
+  color: #4f6450;
+  padding: 7px 11px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.history-day small {
+  font-size: 9px;
+  font-weight: 400;
+  color: #7f8c82;
+}
+.history-day:hover {
+  background: #eaf1e0;
+}
+.history-day[aria-pressed="true"] {
+  background: #254f3f;
+  border-color: #254f3f;
+  color: #fff;
+}
+.history-day[aria-pressed="true"] small {
+  color: #cfe0d6;
+}
+.history-error {
+  font-size: 10px;
+  color: #946037;
+}
+@media (max-width: 600px) {
+  .history {
+    display: block;
+    padding: 12px;
+  }
+  .history-days {
+    margin-top: 10px;
+  }
+}

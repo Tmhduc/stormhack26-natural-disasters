@@ -1,0 +1,13 @@
+sqlalchemy[asyncio]
+psycopg[binary]
+fastapi[standard]
+geopandas
+matplotlib
+numpy
+pydantic-settings
+pyproj
+python-dotenv
+rasterio
+requests
+shapely
+psycopg2
