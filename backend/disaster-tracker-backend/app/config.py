@@ -32,6 +32,10 @@ LOCAL_RASTER = os.path.join(DATA_DIR, "vietnam_flood.tif")  # mosaic các tile, 
 BOUNDARY_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin0.shp")
 BOUNDARY_ADMIN1_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin1.shp")
 BOUNDARY_GEOJSON = os.path.join(DATA_DIR, "vietnam_boundary", "vietnam.geojson")
+# Browser-only boundary: simplified enough for fast SVG rendering. The full
+# boundary remains the source for backend geospatial calculations.
+BROWSER_BOUNDARY_GEOJSON = os.path.join(CACHE_DIR, "vietnam_boundary_simplified.geojson")
+BROWSER_BOUNDARY_TOLERANCE = float(os.getenv("BROWSER_BOUNDARY_TOLERANCE", "0.005"))
 
 # --- Nguồn LANCE gần thời gian thực (MODIS NRT Global Flood Product, MCDWD) ---
 LANCE_ARCHIVE_URL = "https://nrt3.modaps.eosdis.nasa.gov/archive/allData/61"

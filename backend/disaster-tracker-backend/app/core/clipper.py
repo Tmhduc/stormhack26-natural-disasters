@@ -12,10 +12,15 @@ from rasterio.warp import transform as transform_coordinates
 from rasterio.warp import transform_bounds, transform_geom
 from rasterio.windows import Window
 from shapely.geometry import Point, box, mapping
-from shapely.ops import unary_union
 
 from app.config import (
-    LOCAL_RASTER, BOUNDARY_ADMIN1_SHP, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
+    LOCAL_RASTER,
+    BOUNDARY_ADMIN1_SHP,
+    BOUNDARY_SHP,
+    BOUNDARY_GEOJSON,
+    BROWSER_BOUNDARY_GEOJSON,
+    BROWSER_BOUNDARY_TOLERANCE,
+    FLOOD_VALUE,
 )
 
 MCDWD_CLASS_NAMES = {
@@ -36,6 +41,18 @@ def ensure_boundary_geojson() -> str:
         gdf = gpd.read_file(BOUNDARY_SHP)
         gdf.to_file(BOUNDARY_GEOJSON, driver="GeoJSON")
     return BOUNDARY_GEOJSON
+
+
+def ensure_browser_boundary_geojson() -> str:
+    """Create a lightweight boundary for browser rendering on first request."""
+    if not os.path.exists(BROWSER_BOUNDARY_GEOJSON):
+        ensure_boundary_geojson()
+        boundary = gpd.read_file(BOUNDARY_GEOJSON)
+        boundary["geometry"] = boundary.geometry.simplify(
+            BROWSER_BOUNDARY_TOLERANCE, preserve_topology=True
+        )
+        boundary.to_file(BROWSER_BOUNDARY_GEOJSON, driver="GeoJSON")
+    return BROWSER_BOUNDARY_GEOJSON
 
 
 @lru_cache(maxsize=1)
@@ -121,6 +138,15 @@ def _raster_signature() -> tuple[int, int]:
     return stat.st_size, stat.st_mtime_ns
 
 
+@lru_cache(maxsize=4)
+def _boundary_geometries_in_raster(crs_name: str) -> tuple[dict, ...]:
+    """Transform boundary geometries once per raster CRS for neighborhood masks."""
+    return tuple(
+        transform_geom("EPSG:4326", crs_name, mapping(geometry))
+        for geometry in _boundary_wgs84().geometry
+    )
+
+
 def load_clipped_flood() -> tuple:
     flood_mask, _, _, bounds = _load_clipped_flood_cached(_raster_signature())
     return flood_mask, bounds
@@ -166,14 +192,9 @@ def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict
         ).intersection(Window(0, 0, src.width, src.height))
         data = src.read(1, window=window)
         source_transform = src.window_transform(window)
-        boundary = unary_union(_boundary_wgs84().geometry)
-        boundary_in_raster = transform_geom(
-            "EPSG:4326",
-            src.crs,
-            mapping(boundary),
-        )
+        boundary_in_raster = _boundary_geometries_in_raster(src.crs.to_string())
         inside = geometry_mask(
-            [boundary_in_raster],
+            boundary_in_raster,
             out_shape=data.shape,
             transform=source_transform,
             invert=True,

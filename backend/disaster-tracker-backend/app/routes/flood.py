@@ -1,16 +1,15 @@
-import os
 from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
-from app.config import BOUNDARY_GEOJSON, LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
+from app.config import LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
 from app.core.clipper import (
     MCDWD_CLASS_NAMES,
     MCDWD_FLOOD_CLASSES,
     administrative_area,
-    ensure_boundary_geojson,
+    ensure_browser_boundary_geojson,
     inspect_flood_neighborhood,
     inspect_flood_point,
 )
@@ -53,10 +52,12 @@ def get_overlay():
 
 @router.get("/boundary")
 def get_boundary():
-    # Chỉ tạo boundary dạng dễ dùng cho browser khi có request đầu tiên.
-    if not os.path.exists(BOUNDARY_GEOJSON):
-        ensure_boundary_geojson()
-    return FileResponse(BOUNDARY_GEOJSON, media_type="application/geo+json")
+    # Serve a simplified copy; the full boundary remains backend-only.
+    return FileResponse(
+        ensure_browser_boundary_geojson(),
+        media_type="application/geo+json",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.post("/refresh")
