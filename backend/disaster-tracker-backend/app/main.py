@@ -8,14 +8,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import CACHE_DIR, LANCE_POLL_MINUTES
-from app.core import pipeline
+from app.core import history, pipeline
 from app.routes import health, flood
+from app.routes import history as history_routes
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if history.enabled():
+        try:
+            await asyncio.to_thread(history.ensure_schema)
+        except Exception:
+            # The app still serves files; the pipeline retries the schema before its next save.
+            log.exception("Could not apply db/schema.sql")
     # Keep the flood overlay in step with LANCE: fetch on startup, then poll for new/reprocessed tiles.
     poller = asyncio.create_task(pipeline.poll_forever(LANCE_POLL_MINUTES)) if LANCE_POLL_MINUTES > 0 else None
     yield
@@ -42,3 +50,4 @@ app.mount("/static", StaticFiles(directory=CACHE_DIR), name="static")
 # endpoint của mình.
 app.include_router(health.router)
 app.include_router(flood.router)
+app.include_router(history_routes.router)

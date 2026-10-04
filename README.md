@@ -113,6 +113,32 @@ Optional `.env` settings:
 | `LANCE_TILES` | every tile the boundary touches | Comma-separated tile IDs, e.g. `h28v07`. |
 | `LANCE_LOOKBACK_DAYS` | `7` | How many days back to search for a complete day. |
 
+## Flood history database (optional)
+
+If `DATABASE_URL` is set in `.env`, the backend keeps a day-by-day flood history in Postgres:
+
+- On startup, it applies `db/schema.sql`. The script is safe to re-run and never deletes data.
+- Each pipeline run saves the processed day to the `images` table: the overlay PNG, the stitched GeoTIFF, the map bounds and the flood metrics.
+- There is one row per product per day. If LANCE reprocesses a day, that day's row is updated rather than duplicated.
+
+If `DATABASE_URL` isn't set, everything still works from local files.
+
+The connection URL Tiger Cloud shows doesn't include the password. Either add the password to `DATABASE_URL`, or download `pg_service.conf` from the Tiger console into `backend/disaster-tracker-backend/`; the backend reads the password from that file. Git ignores both files.
+
+To check whether the last run was saved, look at `db_saved` and `db_error` in `GET /api/flood/status`. A database problem never stops the pipeline: the next run retries saving the day.
+
+The dashboard's **Flood history** strip reads the saved days through:
+
+- `GET /api/flood/history?limit=30`: saved days, newest first, each with its date, flood metrics, map bounds and `png_url`. Returns an empty list when no database is configured.
+- `GET /api/flood/history/{id}/overlay.png`: the overlay image for one saved day.
+
+LANCE keeps only about 8 days online. To save days the pipeline missed, run it for each one, then once more without `--date` to go back to the newest day:
+
+```bash
+uv run python -m app.core.pipeline --date 2026-10-01
+uv run python -m app.core.pipeline
+```
+
 ## Team workflow
 
 Pull the latest branch before starting work:

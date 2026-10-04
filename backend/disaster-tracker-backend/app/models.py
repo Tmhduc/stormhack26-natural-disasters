@@ -25,6 +25,19 @@ class OverlayResponse(BaseModel):
     bounds: Bounds
 
 
+class HistoryDay(BaseModel):
+    """Một ngày đã lưu trong database: chỉ số ngập và overlay của ngày đó."""
+
+    id: int
+    date: str  # UTC day the satellite data is from, YYYY-MM-DD
+    png_url: str
+    bounds: Bounds
+    flood_pixels: int
+    flooded_km2: float
+    tiles: List[str] = []
+    processed_at: Optional[str] = None
+
+
 class InspectResponse(BaseModel):
     """Kết quả kiểm tra một cặp latitude/longitude với flood mask."""
 

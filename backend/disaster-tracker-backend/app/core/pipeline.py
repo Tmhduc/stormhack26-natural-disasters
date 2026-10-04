@@ -1,6 +1,7 @@
 """LANCE near-real-time flood pipeline.
 
     find newest complete day -> download new/reprocessed tiles -> mosaic -> clip -> metrics + overlay PNG
+    -> one row per day in the Postgres `images` table (only when DATABASE_URL is set)
 
 Run once from the backend folder:
     uv run python -m app.core.pipeline [--date 2026-10-03] [--force]
@@ -19,7 +20,7 @@ from datetime import date, datetime, timezone
 from app.config import (
     LANCE_LOOKBACK_DAYS, LANCE_PRODUCT, LANCE_TILES, LOCAL_RASTER, STATE_FILE
 )
-from app.core import cache, downloader
+from app.core import cache, downloader, history
 from app.core.clipper import boundary_bounds, boundary_tiles
 from app.core.mosaic import build_mosaic
 
@@ -46,6 +47,23 @@ def _write_state(state: dict) -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _save_history(state: dict) -> None:
+    """Copy the processed day into Postgres, when one is configured.
+
+    A database problem is recorded in the state but never fails the run:
+    the files the API serves are already up to date by this point.
+    """
+    if not history.enabled():
+        return
+    try:
+        overlay, _, _ = cache.get_or_build()
+        state["db_image_id"] = history.save_day(state, overlay, LOCAL_RASTER)
+        state["db_saved"], state["db_error"] = True, None
+    except Exception as e:
+        log.exception("Could not save %s to the database", state.get("date"))
+        state["db_saved"], state["db_error"] = False, f"{type(e).__name__}: {e}"
 
 
 def run(day: date | None = None, force: bool = False) -> dict:
@@ -75,6 +93,8 @@ def run(day: date | None = None, force: bool = False) -> dict:
             )
             if unchanged and not force:
                 state["last_error"] = None
+                if not state.get("db_saved"):  # e.g. the database was set up after this day was processed
+                    _save_history(state)
                 _write_state(state)
                 return {**state, "updated": False}
 
@@ -94,7 +114,9 @@ def run(day: date | None = None, force: bool = False) -> dict:
                 bounds=bounds,
                 processed_at=_now(),
                 last_error=None,
+                db_saved=False,
             )
+            _save_history(state)
             _write_state(state)
             return {**state, "updated": True}
         except Exception as e:

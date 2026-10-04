@@ -1,3 +1,4 @@
+import configparser
 import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -22,8 +23,18 @@ CACHE_DIR = os.path.join(BASE_DIR, "cache")
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")  # unset = keep flood history on disk only
 NASA_TOKEN = os.getenv("NASA_TOKEN")
+
+# Tiger Cloud's console URL leaves the password out; the pg_service.conf it offers for
+# download has it. Point libpq at that file so every connection picks the password up.
+PG_SERVICE_FILE = os.path.join(BASE_DIR, "pg_service.conf")
+if os.path.exists(PG_SERVICE_FILE):
+    _services = configparser.ConfigParser()
+    _services.read(PG_SERVICE_FILE)
+    if _services.sections():
+        os.environ.setdefault("PGSERVICEFILE", PG_SERVICE_FILE)
+        os.environ.setdefault("PGSERVICE", _services.sections()[0])
 
 RAW_DIR = os.path.join(DATA_DIR, "raw")  # downloaded LANCE tiles, one folder per day
 STATE_FILE = os.path.join(DATA_DIR, "pipeline_state.json")

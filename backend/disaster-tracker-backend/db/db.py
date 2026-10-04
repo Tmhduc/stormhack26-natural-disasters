@@ -7,7 +7,7 @@ tests/test_db.py checks the two stay in step.
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Double, Integer, LargeBinary, Text, func, text
+from sqlalchemy import BigInteger, DateTime, Double, Engine, Integer, LargeBinary, Text, create_engine, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, mapped_column
@@ -61,6 +61,7 @@ class ImageRow(Base):
     original_media_type: Mapped[str | None] = mapped_column(Text)
     crs: Mapped[str | None] = mapped_column(Text)
     bands: Mapped[int | None] = mapped_column(Integer)
+    source_file: Mapped[str | None] = mapped_column(Text)  # unique: one row per upstream file
     # The bytes are deferred so listing images never pulls them; load with undefer() when serving one.
     data: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)  # what browsers get (PNG/JPEG/WebP)
     original: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)  # untouched source, e.g. the GeoTIFF
@@ -77,14 +78,24 @@ def libpq_url(url: str) -> str:
     return url
 
 
-def make_engine(url: str) -> AsyncEngine:
+def _sa_url(url: str) -> str:
     # Tiger Cloud hands out postgres:// URLs; SQLAlchemy needs the dialect+driver spelled out.
-    sa_url = "postgresql+psycopg://" + libpq_url(url).removeprefix("postgresql://")
-    return create_async_engine(
-        sa_url,
-        pool_size=5,
-        max_overflow=0,
-        pool_pre_ping=True,  # replace connections the server closed while idle
-        # Keeps working behind PgBouncer-style poolers (Tiger Cloud connection pooler).
-        connect_args={"prepare_threshold": None},
-    )
+    return "postgresql+psycopg://" + libpq_url(url).removeprefix("postgresql://")
+
+
+_ENGINE_OPTIONS = dict(
+    pool_size=5,
+    max_overflow=0,
+    pool_pre_ping=True,  # replace connections the server closed while idle
+    # Keeps working behind PgBouncer-style poolers (Tiger Cloud connection pooler).
+    connect_args={"prepare_threshold": None},
+)
+
+
+def make_engine(url: str) -> AsyncEngine:
+    return create_async_engine(_sa_url(url), **_ENGINE_OPTIONS)
+
+
+def make_sync_engine(url: str) -> Engine:
+    """For code that runs outside the event loop, like the flood pipeline's worker thread."""
+    return create_engine(_sa_url(url), **_ENGINE_OPTIONS)
