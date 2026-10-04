@@ -1,0 +1,65 @@
+import os
+
+import rasterio
+from rasterio.merge import merge
+from rasterio.warp import transform_bounds
+
+
+def build_mosaic(tile_paths: list[str], out_path: str, bounds: tuple[float, float, float, float]) -> str:
+    """Merge tiles into a GeoTIFF covering WGS84 (west, south, east, north) bounds.
+
+    Areas not covered by a tile use the source tile's nodata value.
+    """
+    if not tile_paths:
+        raise ValueError("At least one tile is required to build a mosaic")
+
+    with rasterio.open(tile_paths[0]) as first:
+        profile = first.profile.copy()
+        reference = {
+            "crs": first.crs,
+            "res": first.res,
+            "dtype": first.dtypes,
+            "count": first.count,
+            "nodata": first.nodata,
+        }
+
+    for tile_path in tile_paths[1:]:
+        with rasterio.open(tile_path) as tile:
+            current = {
+                "crs": tile.crs,
+                "res": tile.res,
+                "dtype": tile.dtypes,
+                "count": tile.count,
+                "nodata": tile.nodata,
+            }
+            # rasterio.merge uses the first tile's profile. Incompatible tiles
+            # could otherwise produce wrong pixels or coordinates silently.
+            if current != reference:
+                raise ValueError(f"Tile metadata is incompatible with {tile_paths[0]}: {tile_path}")
+
+    data, transform = merge(
+        tile_paths,
+        bounds=transform_bounds("EPSG:4326", profile["crs"], *bounds),
+        target_aligned_pixels=True,  # Preserve the source pixel grid; do not resample.
+        nodata=reference["nodata"],
+    )
+    profile.update(
+        driver="GTiff",
+        height=data.shape[1],
+        width=data.shape[2],
+        transform=transform,
+        compress="deflate",
+        tiled=True,
+        blockxsize=512,
+        blockysize=512,
+    )
+    if reference["nodata"] is not None:
+        profile.update(nodata=reference["nodata"])
+
+    # Write beside the destination, then atomically replace it so readers never
+    # observe a partially written mosaic.
+    partial = out_path + ".part"
+    with rasterio.open(partial, "w", **profile) as dst:
+        dst.write(data)
+    os.replace(partial, out_path)
+    return out_path
