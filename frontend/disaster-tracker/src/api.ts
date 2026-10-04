@@ -12,11 +12,15 @@ export type TelegramInfo = { configured: boolean; link: string | null; recipient
 export type Geometry = { type: string; coordinates: number[][][] | number[][][][] }
 export type Boundary = { type: string; features: { geometry: Geometry }[] }
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "")
+export function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
+}
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), method === 'POST' ? 180000 : 30000)
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, { method, signal: controller.signal, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) })
+    const response = await fetch(apiUrl(path), { method, signal: controller.signal, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) })
     if (!response.ok) {
       const body = await response.json().catch(() => null)
       throw new Error(body?.detail || `Request failed (${response.status}). Check backend setup.`)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { geographic } from "./api";
+import { apiUrl, geographic } from "./api";
 import type { Metrics, Overlay } from "./api";
 import DataNotice from "./components/DataNotice";
 import ErrorBanner from "./components/ErrorBanner";
@@ -59,11 +59,11 @@ function App() {
       }
     : flood.metrics;
   const overlay: Overlay | null = pastDay
-    ? { png_url: pastDay.png_url, bounds: pastDay.bounds }
+    ? { png_url: apiUrl(pastDay.png_url), bounds: pastDay.bounds }
     : flood.overlay && {
         ...flood.overlay,
         // The live PNG keeps its URL across refreshes; bust the browser cache.
-        png_url: `${flood.overlay.png_url}?v=${flood.updated}`,
+        png_url: `${apiUrl(flood.overlay.png_url)}?v=${flood.updated}`,
       };
   const canPlot = !!overlay && geographic(overlay.bounds);
   const imageError = !!overlay && brokenImage === overlay.png_url;
