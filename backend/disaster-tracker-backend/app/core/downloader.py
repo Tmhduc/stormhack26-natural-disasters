@@ -1,4 +1,4 @@
-"""Client for the LANCE near-real-time archive: find published flood tiles and download them."""
+"""Client tìm và tải các tile ngập đã được công bố trên archive LANCE."""
 
 import logging
 import os
@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import requests
+import rasterio
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -14,7 +15,7 @@ from app.config import LANCE_API_URL, LANCE_ARCHIVE_URL, LANCE_PRODUCT, NASA_TOK
 
 log = logging.getLogger(__name__)
 
-# e.g. MCDWD_L3_F2_NRT.A2026276.h28v07.061.tif
+# Ví dụ tên file hợp lệ: MCDWD_L3_F2_NRT.A2026276.h28v07.061.tif
 _TILE_NAME = re.compile(r"\.A\d{7}\.(h\d{2}v\d{2})\.\d{3}\.tif$")
 
 
@@ -28,7 +29,7 @@ class RemoteTile:
     name: str
     day: date
     size: int
-    mtime: int  # changes whenever LANCE reprocesses the tile with newer swaths
+    mtime: int  # thay đổi khi LANCE xử lý lại tile với dữ liệu mới hơn
 
     @property
     def url(self) -> str:
@@ -52,10 +53,10 @@ _session = _make_session()
 
 
 def list_day(day: date) -> dict[str, RemoteTile]:
-    """Every tile LANCE has published for `day` (UTC), keyed by tile id. Empty if the day isn't online."""
+    """Lấy mọi tile LANCE công bố trong ngày UTC, lập chỉ mục theo tile ID."""
     url = f"{LANCE_API_URL}/{LANCE_PRODUCT}/{day:%Y}/{day:%j}"
     r = _session.get(url, params={"fields": "all", "formats": "json"}, timeout=30)
-    if r.status_code == 404:  # not published yet, or already rolled off the archive
+    if r.status_code == 404:  # chưa công bố hoặc đã bị xóa khỏi archive
         return {}
     r.raise_for_status()
 
@@ -76,10 +77,10 @@ def tiles_for_day(day: date, tiles: list[str]) -> list[RemoteTile]:
 
 
 def find_latest(tiles: list[str], lookback_days: int) -> tuple[date, list[RemoteTile]]:
-    """The newest UTC day with every one of `tiles` published, and those tiles.
+    """Tìm ngày UTC mới nhất đã công bố đầy đủ tất cả `tiles`.
 
-    The current day fills in gradually as satellite passes are processed, so it is
-    skipped until it is complete rather than mosaicking a partial day.
+    Ngày hiện tại được bổ sung dần khi vệ tinh bay qua, nên phải bỏ qua cho
+    đến khi đủ tile thay vì ghép một ngày chưa hoàn chỉnh.
     """
     today = datetime.now(timezone.utc).date()
     for back in range(lookback_days + 1):
@@ -101,28 +102,45 @@ def is_current(tile: RemoteTile) -> bool:
 
 
 def download_tile(tile: RemoteTile) -> str:
-    """Download `tile` unless that exact version is already on disk. Returns the local path."""
+    """Tải `tile` nếu đúng phiên bản chưa có trên đĩa, rồi trả về local path."""
     path = tile.local_path
     if is_current(tile):
         return path
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     partial = path + ".part"
-    with _session.get(tile.url, stream=True, timeout=120) as r:
-        if r.status_code in (401, 403) or "html" in r.headers.get("Content-Type", ""):
-            raise LanceError(f"LANCE refused {tile.name} (HTTP {r.status_code}); check NASA_TOKEN in .env")
-        r.raise_for_status()
-        with open(partial, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1 << 16):
-                f.write(chunk)
-    os.replace(partial, path)
-    os.utime(path, (tile.mtime, tile.mtime))  # stamp the upstream version so is_current() can spot reprocessing
+    try:
+        with _session.get(tile.url, stream=True, timeout=120) as r:
+            if r.status_code in (401, 403) or "html" in r.headers.get("Content-Type", "").lower():
+                raise LanceError(f"LANCE refused {tile.name} (HTTP {r.status_code}); check NASA_TOKEN in .env")
+            r.raise_for_status()
+            received = 0
+            with open(partial, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1 << 16):
+                    if chunk:
+                        f.write(chunk)
+                        received += len(chunk)
+
+        # HTTP trả về thành công vẫn có thể bị thiếu byte. Không được đổi tên
+        # file dở dang thành file thật hoặc đánh dấu nó là phiên bản hiện tại.
+        if received != tile.size:
+            raise LanceError(f"Incomplete download for {tile.name}: received {received} bytes, expected {tile.size}")
+        # Mở thử bằng Rasterio để bắt payload HTML, file lỗi hoặc GeoTIFF hỏng
+        # trước khi file được đưa vào bước ghép mosaic.
+        with rasterio.open(partial) as dataset:
+            if dataset.count < 1 or dataset.width < 1 or dataset.height < 1:
+                raise LanceError(f"Downloaded tile {tile.name} is not a usable raster")
+        os.replace(partial, path)
+    finally:
+        if os.path.exists(partial):
+            os.remove(partial)
+    # Gắn mtime của upstream để is_current() phát hiện lúc LANCE reprocess tile.
     log.info("Downloaded %s (%d bytes)", tile.name, tile.size)
     return path
 
 
 def prune(keep: list[str]) -> None:
-    """Delete downloaded tiles other than `keep`, and any day folders left empty."""
+    """Xóa tile không nằm trong `keep` và các thư mục ngày đã rỗng."""
     keep = {os.path.abspath(p) for p in keep}
     if not os.path.isdir(RAW_DIR):
         return
