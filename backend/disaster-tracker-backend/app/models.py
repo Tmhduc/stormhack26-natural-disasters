@@ -45,6 +45,9 @@ class InspectResponse(BaseModel):
     flooded: Optional[bool] = None
     class_value: Optional[int] = None
     class_name: Optional[str] = None
+    admin1_name: Optional[str] = None
+    admin1_type: Optional[str] = None
+    admin1_pcode: Optional[str] = None
     nearby_radius_km: Optional[float] = None
     nearby_pixels: Optional[int] = None
     nearby_flood_pixels: Optional[int] = None

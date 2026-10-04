@@ -30,6 +30,7 @@ RAW_DIR = os.path.join(DATA_DIR, "raw")  # tile LANCE tải về, chia theo từ
 STATE_FILE = os.path.join(DATA_DIR, "pipeline_state.json")
 LOCAL_RASTER = os.path.join(DATA_DIR, "vietnam_flood.tif")  # mosaic các tile, đã giới hạn theo boundary
 BOUNDARY_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin0.shp")
+BOUNDARY_ADMIN1_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin1.shp")
 BOUNDARY_GEOJSON = os.path.join(DATA_DIR, "vietnam_boundary", "vietnam.geojson")
 
 # --- Nguồn LANCE gần thời gian thực (MODIS NRT Global Flood Product, MCDWD) ---

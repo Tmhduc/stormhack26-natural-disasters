@@ -60,6 +60,12 @@ Boundary nguồn:
 data/vietnam_boundary/vnm_admin0.shp
 ```
 
+Boundary hành chính cấp tỉnh/thành dùng để reverse lookup tọa độ:
+
+```text
+data/vietnam_boundary/vnm_admin1.shp
+```
+
 Các file được tạo hoặc tải về:
 
 ```text
@@ -372,6 +378,12 @@ Response trong lãnh thổ Việt Nam có thêm:
 `flooded` là field tiện dụng: class `2` và `3` trả `true`, class `0` và `1`
 trả `false`, còn class `255` trả `null` vì dữ liệu không đủ. `class_value` và
 `class_name` mới là thông tin gốc cần dùng khi phân tích chi tiết.
+
+Backend cũng tra polygon admin1 local và trả `admin1_name`, `admin1_type` và
+`admin1_pcode`, ví dụ `Da Nang city`, `City`, `VN48`. Đây là tỉnh/thành phố,
+không phải địa chỉ số nhà hay tên đường. Để map một địa chỉ cụ thể thành tọa
+độ cần thêm forward geocoding như Nominatim, Google hoặc Mapbox trước khi gọi
+endpoint inspect.
 
 Kết quả lân cận nằm trong `nearby_radius_km`, `nearby_pixels`,
 `nearby_flood_pixels` và `nearby_class_counts`. Đây là thống kê trong một

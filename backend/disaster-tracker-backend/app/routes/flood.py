@@ -9,6 +9,7 @@ from app.core import cache, pipeline
 from app.core.clipper import (
     MCDWD_CLASS_NAMES,
     MCDWD_FLOOD_CLASSES,
+    administrative_area,
     ensure_boundary_geojson,
     inspect_flood_neighborhood,
     inspect_flood_point,
@@ -89,12 +90,16 @@ def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
 
     class_name = MCDWD_CLASS_NAMES.get(flooded, "unknown")
     is_flood = None if flooded == 255 else flooded in MCDWD_FLOOD_CLASSES
+    area = administrative_area(lat, lon)
     nearby = inspect_flood_neighborhood(lat, lon, radius_km)
     return InspectResponse(
         inside=True,
         flooded=is_flood,
         class_value=flooded,
         class_name=class_name,
+        admin1_name=area["name"] if area else None,
+        admin1_type=area["type"] if area else None,
+        admin1_pcode=area["pcode"] if area else None,
         nearby_radius_km=nearby["radius_km"] if nearby else None,
         nearby_pixels=nearby["pixels"] if nearby else None,
         nearby_flood_pixels=nearby["flood_pixels"] if nearby else None,

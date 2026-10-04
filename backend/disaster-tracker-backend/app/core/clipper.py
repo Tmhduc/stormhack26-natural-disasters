@@ -15,7 +15,7 @@ from shapely.geometry import Point, box, mapping
 from shapely.ops import unary_union
 
 from app.config import (
-    LOCAL_RASTER, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
+    LOCAL_RASTER, BOUNDARY_ADMIN1_SHP, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
 )
 
 MCDWD_CLASS_NAMES = {
@@ -46,6 +46,24 @@ def _boundary_wgs84() -> gpd.GeoDataFrame:
 def boundary_bounds() -> tuple[float, float, float, float]:
     """Trả về (tây, nam, đông, bắc) của boundary theo độ WGS84."""
     return tuple(float(v) for v in _boundary_wgs84().total_bounds)
+
+
+@lru_cache(maxsize=1)
+def _admin1_wgs84() -> gpd.GeoDataFrame:
+    return gpd.read_file(BOUNDARY_ADMIN1_SHP).to_crs("EPSG:4326")
+
+
+def administrative_area(lat: float, lon: float) -> dict | None:
+    """Tìm tỉnh/thành chứa tọa độ WGS84 bằng boundary admin1 local."""
+    matches = _admin1_wgs84()[_admin1_wgs84().geometry.covers(Point(lon, lat))]
+    if matches.empty:
+        return None
+    area = matches.iloc[0]
+    return {
+        "name": str(area["adm1_name"]),
+        "type": str(area["adm1_type_"]),
+        "pcode": str(area["adm1_pcode"]),
+    }
 
 
 def boundary_tiles() -> list[str]:
