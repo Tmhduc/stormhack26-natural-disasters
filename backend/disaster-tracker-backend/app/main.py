@@ -41,7 +41,13 @@ app = FastAPI(title="Flood monitor API", version="1.0.0", lifespan=lifespan)
 # The frontend runs on a separate dev server, so browsers need CORS permission.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://distrack.tech",
+        "https://www.distrack.tech",
+        "https://distrack-frontend.onrender.com",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
