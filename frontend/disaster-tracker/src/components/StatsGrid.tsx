@@ -28,29 +28,29 @@ export default function StatsGrid({ metrics }: { metrics: Metrics | null }) {
   return (
     <section className="stats" aria-label="Satellite metrics">
       <StatCard
-        label="Detected flooded area"
+        label="Area flagged for flooding"
         icon="≈"
         value={
           <>
             {formatNumber(metrics?.flooded_km2)} <small>km²</small>
           </>
         }
-        caption="Estimated from classified pixels"
+        caption="Estimated from satellite observations"
       />
       <StatCard
-        label="Flood-classified pixels"
+        label="Pixels flagged for flooding"
         icon="▦"
         value={formatNumber(metrics?.flood_pixels)}
-        caption="0.0625 km² per pixel"
+        caption="Each pixel covers about 0.0625 km²"
       />
       <StatCard
         label="Satellite coverage"
         icon="◎"
         value={tiles ? `${tiles} ${tiles === 1 ? "tile" : "tiles"}` : "—"}
-        caption="MODIS tiles stitched · Vietnam clipping"
+        caption="Satellite tiles covering Vietnam"
       />
       <StatCard
-        label="Raster last downloaded"
+        label="Observation date"
         icon="◷"
         valueClassName="date-stat"
         value={
@@ -58,7 +58,7 @@ export default function StatsGrid({ metrics }: { metrics: Metrics | null }) {
             ? updated.toLocaleDateString("en-US", { month: "short", day: "numeric" })
             : "—"
         }
-        caption={updated ? updated.toLocaleTimeString() : "No raster available yet"}
+        caption={updated ? `Updated ${updated.toLocaleTimeString()}` : "No satellite data yet"}
       />
     </section>
   );

@@ -1,5 +1,8 @@
 import type { LocationInspector } from "../hooks/useLocationInspector";
 import { places } from "../lib/map";
+import { floodClassLabel } from "../lib/floodLanguage";
+
+const PIXEL_AREA_KM2 = 0.0625;
 
 type Props = {
   inspector: LocationInspector;
@@ -18,20 +21,21 @@ function resultMessage({ inspection, error }: LocationInspector, notice?: string
   if (!inspection.inside) return `${where}: Outside raster coverage.`;
   const address = inspection.address ? `${inspection.address} · ` : "";
   const area = inspection.admin1_name ? `${inspection.admin1_name} · ` : "";
-  const classDetails = inspection.class_name
-    ? `Class ${inspection.class_value} (${inspection.class_name})`
-    : "Unknown class";
+  const classDetails = floodClassLabel(inspection.class_name, inspection.class_value);
   if (inspection.flooded === null) {
-    return `${address}${area}${where}: ${classDetails}; insufficient data. ${nearbyMessage(inspection)}`;
+    return `${address}${area}${where}: ${classDetails}. ${nearbyMessage(inspection)}`;
   }
   return inspection.flooded
-    ? `${address}${area}${where}: ${classDetails}; flood detected. ${nearbyMessage(inspection)}`
-    : `${address}${area}${where}: ${classDetails}; no unusual flood. ${nearbyMessage(inspection)}`;
+    ? `${address}${area}${where}: ${classDetails}. ${nearbyMessage(inspection)}`
+    : `${address}${area}${where}: ${classDetails}. No unusual flooding detected here. ${nearbyMessage(inspection)}`;
 }
 
 function nearbyMessage(inspection: NonNullable<LocationInspector["inspection"]>) {
   if (inspection.nearby_radius_km == null || inspection.nearby_pixels == null) return "";
-  return `${inspection.nearby_flood_pixels ?? 0} flood pixels within ${inspection.nearby_radius_km} km (${inspection.nearby_pixels} pixels checked).`;
+  const flagged = inspection.nearby_flood_pixels ?? 0;
+  const share = inspection.nearby_pixels ? Math.round((flagged / inspection.nearby_pixels) * 100) : 0;
+  const area = (flagged * PIXEL_AREA_KM2).toFixed(1);
+  return `Nearby satellite signal: about ${area} km² may be affected by flooding within ${inspection.nearby_radius_km} km (${share}% of the checked area).`;
 }
 
 export default function InspectPanel({ inspector, disabled, notice }: Props) {

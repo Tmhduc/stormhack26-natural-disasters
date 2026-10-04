@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 import { request, type Boundary, type GeocodeResult, type Overlay } from "../api";
 import type { LocationInspector } from "../hooks/useLocationInspector";
 import { formatDay } from "../lib/format";
+import { floodClassLabel } from "../lib/floodLanguage";
 import {
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -327,7 +328,7 @@ export default function FloodMap({
           {result?.admin1_name && <div className="selected-place">📍 {result.admin1_type || 'Khu vực'}: <strong>{result.admin1_name}</strong></div>}
           {result?.address && <div className="selected-address">{result.address}</div>}
           <p>{archiveDate ? 'Historical view · inspection is available for Latest only.' : inspector.inspecting ? 'Inspecting satellite pixel…' : result ? !result.inside ? 'Outside raster coverage' : result.flooded === null ? 'Classification unavailable' : result.flooded ? 'Flood-classified pixel detected' : 'No flood-classified pixel detected' : 'Not inspected yet'}</p>
-          {result?.class_name && <small>Classification: {result.class_name}</small>}
+          {result && <small>What the satellite saw: {floodClassLabel(result.class_name, result.class_value)}</small>}
           <small>Acquisition: {acquisitionDate || 'unavailable'} · UTC</small>
           <button disabled={inspectDisabled || inspector.inspecting} onClick={() => void inspector.inspect()}>{inspector.inspecting ? 'Inspecting…' : '⌖ Inspect this location'}</button>
           {!archiveDate && inspector.error && <p role="alert">{inspector.error}</p>}
