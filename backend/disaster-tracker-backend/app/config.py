@@ -1,4 +1,3 @@
-import configparser
 import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
