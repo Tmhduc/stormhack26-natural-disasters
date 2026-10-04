@@ -225,11 +225,11 @@ export default function FloodMap({
               <circle
                 cx={lonToX(Number(lon))}
                 cy={latToY(Number(lat))}
-                r="12"
+                r="7"
                 fill="#286d5e22"
                 stroke="#286d5e"
               />
-              <circle cx={lonToX(Number(lon))} cy={latToY(Number(lat))} r="3" fill="#286d5e" />
+              <circle cx={lonToX(Number(lon))} cy={latToY(Number(lat))} r="2.5" fill="#286d5e" />
             </g>
           )}
         </svg>

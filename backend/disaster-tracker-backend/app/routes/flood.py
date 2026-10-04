@@ -2,7 +2,7 @@ import os
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from app.config import BOUNDARY_GEOJSON, LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
@@ -10,6 +10,7 @@ from app.core.clipper import (
     MCDWD_CLASS_NAMES,
     MCDWD_FLOOD_CLASSES,
     ensure_boundary_geojson,
+    inspect_flood_neighborhood,
     inspect_flood_point,
 )
 from app.core.downloader import LanceError
@@ -80,7 +81,7 @@ def status():
 
 
 @router.get("/inspect", response_model=InspectResponse)
-def inspect(lat: float, lon: float):
+def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
     # Chỉ đọc một pixel trong GeoTIFF; metrics và overlay mới cần toàn bộ mask.
     flooded = inspect_flood_point(lat, lon)
     if flooded is None:
@@ -88,11 +89,16 @@ def inspect(lat: float, lon: float):
 
     class_name = MCDWD_CLASS_NAMES.get(flooded, "unknown")
     is_flood = None if flooded == 255 else flooded in MCDWD_FLOOD_CLASSES
+    nearby = inspect_flood_neighborhood(lat, lon, radius_km)
     return InspectResponse(
         inside=True,
         flooded=is_flood,
         class_value=flooded,
         class_name=class_name,
+        nearby_radius_km=nearby["radius_km"] if nearby else None,
+        nearby_pixels=nearby["pixels"] if nearby else None,
+        nearby_flood_pixels=nearby["flood_pixels"] if nearby else None,
+        nearby_class_counts=nearby["class_counts"] if nearby else {},
         lat=lat,
         lon=lon,
     )

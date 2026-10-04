@@ -45,5 +45,9 @@ class InspectResponse(BaseModel):
     flooded: Optional[bool] = None
     class_value: Optional[int] = None
     class_name: Optional[str] = None
+    nearby_radius_km: Optional[float] = None
+    nearby_pixels: Optional[int] = None
+    nearby_flood_pixels: Optional[int] = None
+    nearby_class_counts: dict[str, int] = {}
     lat: float
     lon: float

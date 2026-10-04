@@ -20,11 +20,16 @@ function resultMessage({ inspection, error }: LocationInspector, notice?: string
     ? `Class ${inspection.class_value} (${inspection.class_name})`
     : "Unknown class";
   if (inspection.flooded === null) {
-    return `${where}: ${classDetails}; insufficient data.`;
+    return `${where}: ${classDetails}; insufficient data. ${nearbyMessage(inspection)}`;
   }
   return inspection.flooded
-    ? `${where}: ${classDetails}; flood detected.`
-    : `${where}: ${classDetails}; no unusual flood.`;
+    ? `${where}: ${classDetails}; flood detected. ${nearbyMessage(inspection)}`
+    : `${where}: ${classDetails}; no unusual flood. ${nearbyMessage(inspection)}`;
+}
+
+function nearbyMessage(inspection: NonNullable<LocationInspector["inspection"]>) {
+  if (inspection.nearby_radius_km == null || inspection.nearby_pixels == null) return "";
+  return `${inspection.nearby_flood_pixels ?? 0} flood pixels within ${inspection.nearby_radius_km} km (${inspection.nearby_pixels} pixels checked).`;
 }
 
 export default function InspectPanel({ inspector, disabled, notice }: Props) {

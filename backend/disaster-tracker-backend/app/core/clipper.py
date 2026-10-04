@@ -1,15 +1,18 @@
 import os
+import math
 from functools import lru_cache
 
 import geopandas as gpd
 import numpy as np
 import rasterio
+from rasterio.features import geometry_mask
 from rasterio.mask import mask
 from rasterio.transform import array_bounds
 from rasterio.warp import transform as transform_coordinates
-from rasterio.warp import transform_bounds
+from rasterio.warp import transform_bounds, transform_geom
 from rasterio.windows import Window
 from shapely.geometry import Point, box, mapping
+from shapely.ops import unary_union
 
 from app.config import (
     LOCAL_RASTER, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
@@ -122,3 +125,50 @@ def inspect_flood_point(lat: float, lon: float) -> int | None:
             return None
         value = src.read(1, window=Window(column, row, 1, 1))[0, 0]
     return int(value)
+
+
+def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict | None:
+    """Thống kê class trong một vùng lân cận nhỏ quanh tọa độ WGS84."""
+    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+        return None
+
+    with rasterio.open(LOCAL_RASTER) as src:
+        x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
+        row, column = src.index(x[0], y[0])
+        if not (0 <= row < src.height and 0 <= column < src.width):
+            return None
+
+        meters_per_pixel = abs(src.res[1]) * 111_320
+        pixel_radius = max(1, math.ceil(radius_km * 1000 / meters_per_pixel))
+        window = Window(
+            column - pixel_radius,
+            row - pixel_radius,
+            pixel_radius * 2 + 1,
+            pixel_radius * 2 + 1,
+        ).intersection(Window(0, 0, src.width, src.height))
+        data = src.read(1, window=window)
+        source_transform = src.window_transform(window)
+        boundary = unary_union(_boundary_wgs84().geometry)
+        boundary_in_raster = transform_geom(
+            "EPSG:4326",
+            src.crs,
+            mapping(boundary),
+        )
+        inside = geometry_mask(
+            [boundary_in_raster],
+            out_shape=data.shape,
+            transform=source_transform,
+            invert=True,
+            all_touched=False,
+        )
+
+    class_counts = {
+        name: int(((data == value) & inside).sum())
+        for value, name in MCDWD_CLASS_NAMES.items()
+    }
+    return {
+        "radius_km": radius_km,
+        "pixels": int(inside.sum()),
+        "class_counts": class_counts,
+        "flood_pixels": sum(class_counts.get(MCDWD_CLASS_NAMES[value], 0) for value in MCDWD_FLOOD_CLASSES),
+    }

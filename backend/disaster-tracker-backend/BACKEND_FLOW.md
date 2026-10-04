@@ -348,7 +348,8 @@ Endpoint này:
 2. Mở mosaic và chuyển điểm WGS84 sang CRS của raster.
 3. Dùng transform thật của mosaic để xác định pixel chứa điểm.
 4. Đọc đúng một cửa sổ `1x1` từ band raster.
-5. Trả nguyên class gốc và tên class của MCDWD.
+5. Trả nguyên class gốc và tên class của MCDWD tại đúng tọa độ.
+6. Đọc thêm vùng lân cận mặc định bán kính `2 km` để thống kê class.
 
 Điểm ngoài Việt Nam hoặc ngoài array sẽ trả `inside: false`. Tọa độ người
 dùng gửi lên vẫn được giữ nguyên trong response. Endpoint này không cần load
@@ -371,6 +372,11 @@ Response trong lãnh thổ Việt Nam có thêm:
 `flooded` là field tiện dụng: class `2` và `3` trả `true`, class `0` và `1`
 trả `false`, còn class `255` trả `null` vì dữ liệu không đủ. `class_value` và
 `class_name` mới là thông tin gốc cần dùng khi phân tích chi tiết.
+
+Kết quả lân cận nằm trong `nearby_radius_km`, `nearby_pixels`,
+`nearby_flood_pixels` và `nearby_class_counts`. Đây là thống kê trong một
+window raster nhỏ quanh điểm, chỉ tính pixel nằm trong boundary Việt Nam; nó
+không thay thế class tại đúng tọa độ.
 
 ## 9. Database layer
 
