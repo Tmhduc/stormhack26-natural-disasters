@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { geographic } from "./api";
 import type { Metrics, Overlay } from "./api";
 import DataNotice from "./components/DataNotice";
@@ -22,6 +22,11 @@ function App() {
   const flood = useFloodData();
   const history = useFloodHistory(flood.updated);
   const inspector = useLocationInspector();
+  const { clearResult } = inspector;
+  useEffect(() => {
+    const timer = setTimeout(clearResult, 0);
+    return () => clearTimeout(timer);
+  }, [flood.datasetVersion, clearResult]);
   const [selectedId, setSelectedId] = useState<number | null>(null); // null = latest data
   const [showFlood, setShowFlood] = useState(true);
   const [opacity, setOpacity] = useState(75);
@@ -65,6 +70,8 @@ function App() {
         <Topbar connected={flood.connected} busy={busy} />
         <PageHeading busy={busy} onRefresh={() => reload(true)} />
         <DataNotice metrics={metrics} busy={busy} onReconnect={() => reload()} />
+        <div className="reload-help"><p><strong>Reload dashboard</strong> reads saved backend data. <strong>Refresh satellite data</strong> checks NASA and processes new imagery when available.</p><label><input type="checkbox" checked={flood.autoReload} onChange={e => flood.setAutoReload(e.target.checked)} />Auto reload every 60s</label></div>
+        <p className="reload-status" role="status">{busy ? flood.phase : flood.error ? 'Update failed. Previously displayed data may be out of date.' : flood.lastRead ? `Dashboard last read: ${new Date(flood.lastRead).toLocaleTimeString()}` : 'Waiting for data'}{pastDay ? ' · Viewing selected historical day' : ''}</p>
         {flood.error && <ErrorBanner message={flood.error} />}
         {(history.days.length > 0 || history.error) && (
           <HistoryTimeline
@@ -78,6 +85,9 @@ function App() {
         <StatsGrid metrics={metrics} />
         <div className="workspace">
           <FloodMap
+            inspector={inspector}
+            acquisitionDate={metrics?.date || null}
+            inspectDisabled={busy || !flood.metrics || !geographic(flood.metrics.bounds) || !!pastDay}
             boundary={flood.boundary}
             overlay={overlay}
             archiveDate={pastDay ? pastDay.date : null}

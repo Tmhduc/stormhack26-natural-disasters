@@ -8,7 +8,7 @@ export default function PageHeading({ busy, onRefresh }: Props) {
         <h1>A clearer view of the ground.</h1>
         <p>Monitor satellite-detected flooding across Vietnam.</p>
       </div>
-      <button className="primary" disabled={busy} onClick={onRefresh}>
+      <button title="Ask the backend to check NASA, download new imagery if available and rebuild flood data." className="primary" disabled={busy} onClick={onRefresh}>
         {busy ? "Processing…" : "↻ Refresh satellite data"}
       </button>
     </section>

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { request } from "../api";
 import type { Inspection } from "../api";
 
@@ -58,6 +58,7 @@ export function useLocationInspector() {
       inspectingRef.current = false;
     }
   }
+  const clearResult = useCallback(() => setInspection(null), []);
   return {
     lat,
     lon,
@@ -68,7 +69,7 @@ export function useLocationInspector() {
     inspection,
     error,
     inspecting,
-    clearResult: () => setInspection(null),
+    clearResult,
   };
 }
 

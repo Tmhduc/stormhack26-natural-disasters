@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { Boundary, Overlay } from "../api";
+import type { LocationInspector } from "../hooks/useLocationInspector";
 import { formatDay } from "../lib/format";
 import {
   MAP_HEIGHT,
@@ -14,6 +15,9 @@ import {
 } from "../lib/map";
 
 type Props = {
+  inspector: LocationInspector;
+  inspectDisabled: boolean;
+  acquisitionDate: string | null;
   boundary: Boundary | null;
   overlay: Overlay | null;
   archiveDate: string | null; // set when showing a past day instead of the latest data
@@ -28,6 +32,9 @@ type Props = {
 };
 
 export default function FloodMap({
+  inspector,
+  inspectDisabled,
+  acquisitionDate,
   boundary,
   overlay,
   archiveDate,
@@ -42,6 +49,10 @@ export default function FloodMap({
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [search, setSearch] = useState("");
+  const [center, setCenter] = useState({ x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 });
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ id: number; x: number; y: number; cx: number; cy: number; inverse: DOMMatrix; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState("");
   const mapCard = useRef<HTMLElement>(null);
@@ -52,8 +63,9 @@ export default function FloodMap({
   );
   const vbWidth = MAP_WIDTH / zoom,
     vbHeight = MAP_HEIGHT / zoom;
-  const vbX = (MAP_WIDTH - vbWidth) / 2,
-    vbY = (MAP_HEIGHT - vbHeight) / 2;
+  const result = !archiveDate && inspector.inspection?.lat === Number(lat) && inspector.inspection?.lon === Number(lon) ? inspector.inspection : null;
+  const vbX = center.x - vbWidth / 2,
+    vbY = center.y - vbHeight / 2;
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -79,6 +91,7 @@ export default function FloodMap({
   }
 
   function handleClick(e: MouseEvent<SVGSVGElement>) {
+    if (suppressClick.current) { suppressClick.current = false; return; }
     if (!svg.current) return;
     const matrix = svg.current.getScreenCTM();
     if (!matrix) return;
@@ -104,7 +117,7 @@ export default function FloodMap({
               : "AWAITING DATA"}
           </span>
           <button className="fullscreen-button" onClick={() => void toggleFullscreen()}>
-            {fullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
+            {fullscreen ? "Exit full screen" : "Full screen"}
           </button>
         </div>
       </div>
@@ -143,6 +156,30 @@ export default function FloodMap({
       <div className="map">
         <svg
           ref={svg}
+          className={dragging ? 'is-dragging' : ''}
+          style={{ touchAction: 'none', userSelect: 'none', cursor: dragging ? 'grabbing' : 'grab' }}
+          onPointerDown={e => {
+            if (e.button !== 0 || drag.current) return;
+            const matrix = e.currentTarget.getScreenCTM(); if (!matrix) return;
+            suppressClick.current = false;
+            drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, cx: center.x, cy: center.y, inverse: matrix.inverse(), moved: false };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={e => {
+            const start = drag.current; if (!start || start.id !== e.pointerId) return;
+            if (!start.moved && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 5) return;
+            start.moved = true; suppressClick.current = true; setDragging(true);
+            const from = new DOMPoint(start.x, start.y).matrixTransform(start.inverse);
+            const to = new DOMPoint(e.clientX, e.clientY).matrixTransform(start.inverse);
+            setCenter({ x: start.cx - (to.x - from.x), y: start.cy - (to.y - from.y) });
+          }}
+          onPointerUp={e => {
+            if (drag.current?.id !== e.pointerId) return;
+            drag.current = null; setDragging(false);
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+          }}
+          onPointerCancel={() => { drag.current = null; suppressClick.current = true; setDragging(false); }}
+          onLostPointerCapture={() => { drag.current = null; setDragging(false); }}
           viewBox={`${vbX} ${vbY} ${vbWidth} ${vbHeight}`}
           aria-label="Vietnam geographic reference map; use the coordinate form to inspect a location"
           onClick={handleClick}
@@ -248,14 +285,24 @@ export default function FloodMap({
           >
             −
           </button>
-          <button aria-label="Reset map zoom" onClick={() => setZoom(1)}>
+          <button aria-label="Reset map zoom" onClick={() => { setZoom(1); setCenter({ x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 }); }}>
             ⌂
           </button>
         </div>
         <div className="map-legend">
           <i /> Satellite-detected flood <span>● City reference</span>
         </div>
-        <div className="map-hint">Click the map to select coordinates</div>
+        {fullscreen && <div className="selected-location" aria-live="polite">
+          <div className="eyebrow">SELECTED LOCATION</div>
+          <strong>{lat.trim() && lon.trim() && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) ? `${Number(lat).toFixed(4)} lat / ${Number(lon).toFixed(4)} lon` : 'Select a point on the map'}</strong>
+          <p>{archiveDate ? 'Historical view · inspection is available for Latest only.' : inspector.inspecting ? 'Inspecting satellite pixel…' : result ? !result.inside ? 'Outside raster coverage' : result.flooded === null ? 'Classification unavailable' : result.flooded ? 'Flood-classified pixel detected' : 'No flood-classified pixel detected' : 'Not inspected yet'}</p>
+          {result?.class_name && <small>Classification: {result.class_name}</small>}
+          <small>Acquisition: {acquisitionDate || 'unavailable'} · UTC</small>
+          <button disabled={inspectDisabled || inspector.inspecting} onClick={() => void inspector.inspect()}>{inspector.inspecting ? 'Inspecting…' : '⌖ Inspect this location'}</button>
+          {!archiveDate && inspector.error && <p role="alert">{inspector.error}</p>}
+          <small>Satellite classification does not confirm ground conditions.</small>
+        </div>}
+        <div className="map-hint">Drag to move · Use + / − to zoom · Click to select</div>
       </div>
       <div className="map-footer">
         <span>NASA MODIS flood classification</span>

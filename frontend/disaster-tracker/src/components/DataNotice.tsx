@@ -18,8 +18,8 @@ export default function DataNotice({ metrics, busy, onReconnect }: Props) {
         <strong>Vietnam flood monitoring</strong>
         <span>NASA MODIS · {details}</span>
       </div>
-      <button className="text-button" disabled={busy} onClick={onReconnect}>
-        Reconnect ↗
+      <button title="Read data already available on the backend; no NASA download requested." className="text-button" disabled={busy} onClick={onReconnect}>
+        Reload dashboard ↗
       </button>
     </div>
   );
