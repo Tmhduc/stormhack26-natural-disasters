@@ -7,6 +7,7 @@ venv/
 # Secrets
 .token
 *.env
+*.conf
 
 # Data
 data/
@@ -16,3 +17,5 @@ cache/
 .vscode/
 .idea/
 .DS_Store
+
+
