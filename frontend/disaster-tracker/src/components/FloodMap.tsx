@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { Boundary, Overlay } from "../api";
 import { formatDay } from "../lib/format";
@@ -41,12 +41,42 @@ export default function FloodMap({
   onSelect,
 }: Props) {
   const [zoom, setZoom] = useState(1);
+  const [search, setSearch] = useState("");
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState("");
+  const mapCard = useRef<HTMLElement>(null);
   const svg = useRef<SVGSVGElement>(null);
   const paths = useMemo(() => boundaryPaths(boundary), [boundary]);
+  const searchResults = places.filter((place) =>
+    place.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
   const vbWidth = MAP_WIDTH / zoom,
     vbHeight = MAP_HEIGHT / zoom;
   const vbX = (MAP_WIDTH - vbWidth) / 2,
     vbY = (MAP_HEIGHT - vbHeight) / 2;
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setFullscreen(document.fullscreenElement === mapCard.current);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  async function toggleFullscreen() {
+    setFullscreenError("");
+    try {
+      if (document.fullscreenElement === mapCard.current) {
+        await document.exitFullscreen();
+      } else if (mapCard.current?.requestFullscreen) {
+        await mapCard.current.requestFullscreen();
+      } else {
+        setFullscreenError("Fullscreen không khả dụng trên trình duyệt này.");
+      }
+    } catch {
+      setFullscreenError("Không thể mở fullscreen trên cửa sổ hiện tại.");
+    }
+  }
 
   function handleClick(e: MouseEvent<SVGSVGElement>) {
     if (!svg.current) return;
@@ -59,20 +89,57 @@ export default function FloodMap({
   }
 
   return (
-    <section className="map-card" id="map">
+    <section ref={mapCard} className="map-card" id="map">
       <div className="card-header">
         <div>
           <h2>Flood observation map</h2>
           <p>Vietnam / geographic reference</p>
         </div>
-        <span className="pill">
-          {archiveDate
-            ? `ARCHIVE · ${formatDay(archiveDate).toUpperCase()}`
-            : overlay
-            ? "SATELLITE LAYER"
-            : "AWAITING DATA"}
-        </span>
+        <div className="map-header-actions">
+          <span className="pill">
+            {archiveDate
+              ? `ARCHIVE · ${formatDay(archiveDate).toUpperCase()}`
+              : overlay
+              ? "SATELLITE LAYER"
+              : "AWAITING DATA"}
+          </span>
+          <button className="fullscreen-button" onClick={() => void toggleFullscreen()}>
+            {fullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
+          </button>
+        </div>
       </div>
+      <div className="map-search-bar">
+        <label htmlFor="map-search">Tìm địa điểm</label>
+        <input
+          id="map-search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Hanoi, Da Nang..."
+        />
+        {search.trim() && (
+          <div className="search-results">
+            {searchResults.length ? (
+              searchResults.map((place) => (
+                <button
+                  key={place.name}
+                  onClick={() => {
+                    onSelect(place.lat, place.lon);
+                    setSearch("");
+                  }}
+                >
+                  {place.name}
+                  <small>
+                    {place.lat.toFixed(4)}, {place.lon.toFixed(4)}
+                  </small>
+                </button>
+              ))
+            ) : (
+              <p>Không tìm thấy địa điểm.</p>
+            )}
+          </div>
+        )}
+      </div>
+      {fullscreenError && <p className="pipeline-warning">{fullscreenError}</p>}
       <div className="map">
         <svg
           ref={svg}
