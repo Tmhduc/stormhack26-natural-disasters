@@ -67,9 +67,9 @@ export function useFloodData() {
   }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
-      void load();
+      void load();                         
     }, 0);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer); 
   }, [load]);
   useEffect(() => {
     if (!autoReload) return;

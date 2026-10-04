@@ -5,12 +5,25 @@ The tables are created by db/schema.sql, which also holds what the ORM can't exp
 tests/test_db.py checks the two stay in step.
 """
 
+import configparser
+import os
 from datetime import date, datetime
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, Double, Engine, Integer, LargeBinary, Text, create_engine, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, mapped_column
+
+# Tiger Cloud's console URL leaves the password out; the pg_service.conf it offers for
+# download has it. Point libpq at that file so every connection picks the password up.
+# (A DATABASE_URL that includes the password works too: libpq only fills in what's missing.)
+PG_SERVICE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pg_service.conf")
+if os.path.exists(PG_SERVICE_FILE):
+    _services = configparser.ConfigParser()
+    _services.read(PG_SERVICE_FILE)
+    if _services.sections():
+        os.environ.setdefault("PGSERVICEFILE", PG_SERVICE_FILE)
+        os.environ.setdefault("PGSERVICE", _services.sections()[0])
 
 
 class Base(DeclarativeBase):
@@ -92,6 +105,14 @@ class FloodIncidentRow(Base):
     status: Mapped[str] = mapped_column(Text, server_default="open")
     notes: Mapped[str | None] = mapped_column(Text)
     data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+
+
+class TelegramSubscriberRow(Base):
+    __tablename__ = "telegram_subscribers"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str | None] = mapped_column(Text)
+    subscribed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 def libpq_url(url: str) -> str:

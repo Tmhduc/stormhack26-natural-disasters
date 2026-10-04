@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.config import GOOGLE_MAPS_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
+from app.config import GOOGLE_MAPS_API_KEY, TELEGRAM_BOT_TOKEN, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
 from app.core import history, pipeline
 
 router = APIRouter(tags=["health"])
@@ -13,7 +13,7 @@ def health():
     state = pipeline.read_state()
     integrations = {
         "google_geocoding": bool(GOOGLE_MAPS_API_KEY),
-        "telegram": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+        "telegram": bool(TELEGRAM_BOT_TOKEN),  # recipients subscribe through the bot
         "twilio": bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN),
     }
     return {

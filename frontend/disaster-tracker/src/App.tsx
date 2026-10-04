@@ -8,9 +8,7 @@ import Footer from "./components/Footer";
 import FloodTrend from "./components/FloodTrend";
 import HotspotPanel from "./components/HotspotPanel";
 import HistoryTimeline from "./components/HistoryTimeline";
-import IncidentBrief from "./components/IncidentBrief";
 import ResponderBoard from "./components/ResponderBoard";
-import type { Inspection } from "./api";
 import InspectPanel from "./components/InspectPanel";
 import LayerPanel from "./components/LayerPanel";
 import PageHeading from "./components/PageHeading";
@@ -24,6 +22,7 @@ import { useFloodTrend } from "./hooks/useFloodTrend";
 import { useSavedIncidents } from "./hooks/useSavedIncidents";
 import { useHotspots } from "./hooks/useHotspots";
 import { useSystemHealth } from "./hooks/useSystemHealth";
+import { useTelegramAlerts } from "./hooks/useTelegramAlerts";
 import { useLocationInspector } from "./hooks/useLocationInspector";
 import "./App.css";
 
@@ -35,6 +34,7 @@ function App() {
   const saved = useSavedIncidents(flood.updated);
   const hotspots = useHotspots(flood.updated);
   const health = useSystemHealth();
+  const telegram = useTelegramAlerts();
   const { clearResult } = inspector;
   useEffect(() => {
     const timer = setTimeout(clearResult, 0);
@@ -76,10 +76,6 @@ function App() {
     inspector.clearResult();
     setSelectedId(id);
   }
-  async function saveIncident(inspection: Inspection) {
-    await saved.save(inspection, metrics);
-    hotspots.reload();
-  }
   async function removeIncident(id: string) {
     await saved.remove(id);
     hotspots.reload();
@@ -89,7 +85,7 @@ function App() {
       <Sidebar />
       <main id="overview">
         <Topbar connected={flood.connected} busy={busy} health={health} />
-        <PageHeading busy={busy} onRefresh={() => reload(true)} />
+        <PageHeading busy={busy} onRefresh={() => reload(true)} telegramLink={telegram?.link ?? null} />
         <DataNotice metrics={metrics} busy={busy} onReconnect={() => reload()} />
         <div className="reload-help"><p><strong>Reload dashboard</strong> reads saved backend data. <strong>Refresh satellite data</strong> checks NASA and processes new imagery when available.</p><label><input type="checkbox" checked={flood.autoReload} onChange={e => flood.setAutoReload(e.target.checked)} />Auto reload every 60s</label></div>
         <p className="reload-status" role="status">{busy ? flood.phase : flood.error ? 'Update failed. Previously displayed data may be out of date.' : flood.lastRead ? `Dashboard last read: ${new Date(flood.lastRead).toLocaleTimeString()}` : 'Waiting for data'}{pastDay ? ' · Viewing selected historical day' : ''}</p>
@@ -134,6 +130,8 @@ function App() {
                   ? "Inspection checks the latest data. Select “Latest” under Flood history to inspect a location."
                   : undefined
               }
+              observedDate={metrics?.date ?? null}
+              telegramRecipients={telegram?.configured ? telegram.recipients : null}
             />
             <LayerPanel
               showFlood={showFlood}
@@ -144,7 +142,6 @@ function App() {
               canPlot={canPlot}
               imageError={imageError}
             />
-            <IncidentBrief inspection={inspector.inspection} metrics={metrics} onSave={saveIncident} saved={!!inspector.inspection && saved.incidents.some((item) => item.lat === inspector.inspection?.lat && item.lon === inspector.inspection?.lon)} />
           </aside>
         </div>
         <ResponderBoard incidents={saved.incidents} metrics={metrics} onRemove={removeIncident} onUpdate={saved.update} error={saved.error} />

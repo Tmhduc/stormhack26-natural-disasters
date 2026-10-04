@@ -98,6 +98,13 @@ alter table flood_incidents add column if not exists notes text;
 create index if not exists flood_incidents_created_idx on flood_incidents (created_at desc);
 create index if not exists flood_incidents_admin1_idx on flood_incidents (admin1_name, created_at desc);
 
+-- Telegram chats that sent /start to the bot. Alerts go to all of them; /stop removes a row.
+create table if not exists telegram_subscribers (
+  chat_id        bigint primary key,           -- Telegram chat id (a person, or a group the bot was added to)
+  name           text,                         -- display name, so the team can tell subscribers apart
+  subscribed_at  timestamptz not null default now()
+);
+
 -- Tell the API about every new image, however it was inserted, so browsers update live.
 create or replace function notify_new_image() returns trigger language plpgsql as $$
 begin

@@ -139,6 +139,26 @@ uv run python -m app.core.pipeline --date 2026-10-01
 uv run python -m app.core.pipeline
 ```
 
+## Telegram alerts (optional)
+
+To set up Telegram alerts:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather).
+2. Add the bot's token to `.env` as `TELEGRAM_BOT_TOKEN`. This is the only Telegram setting you need.
+3. Restart the backend. `--reload` doesn't notice changes to `.env` unless you start it with `--reload-include .env`.
+
+People subscribe themselves, so nobody has to edit `.env` to add a recipient:
+
+- **Subscribe:** click **Get Telegram alerts** on the dashboard, or open the bot in Telegram, then tap **Start**.
+- **Unsubscribe:** send `/stop` to the bot.
+- **Groups:** to alert a whole group, add the bot to the group and send `/start` there.
+
+**Send to Telegram** on an inspected location sends the message to every subscriber. Subscribed chats are stored in the `telegram_subscribers` table, so subscriptions need the database. If someone blocks the bot or removes it from a group, that chat is unsubscribed automatically the next time an alert is sent.
+
+`TELEGRAM_CHAT_ID` is optional. If it's set, that chat gets every alert, as well as the subscribers.
+
+`GET /api/flood/alerts/telegram` returns the subscribe link and the number of chats that will receive alerts.
+
 ## Team workflow
 
 Pull the latest branch before starting work:

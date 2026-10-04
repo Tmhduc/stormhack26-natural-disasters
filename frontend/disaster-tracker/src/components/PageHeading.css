@@ -1,0 +1,27 @@
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.telegram-link {
+  border: 1px solid #238acb;
+  background: #fff;
+  color: #1c6fa4;
+  border-radius: 6px;
+  padding: 13px 17px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.telegram-link:hover {
+  background: #eef6fc;
+}
+@media (max-width: 600px) {
+  .heading-actions {
+    margin-top: 20px;
+  }
+  .heading .heading-actions .primary {
+    margin-top: 0;
+  }
+}

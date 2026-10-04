@@ -1,6 +1,7 @@
 import type { LocationInspector } from "../hooks/useLocationInspector";
 import { places } from "../lib/map";
 import { floodClassLabel } from "../lib/floodLanguage";
+import TelegramButton from "./TelegramButton";
 
 const PIXEL_AREA_KM2 = 0.0625;
 
@@ -8,6 +9,8 @@ type Props = {
   inspector: LocationInspector;
   disabled: boolean;
   notice?: string; // shown in place of the result, e.g. why inspecting is unavailable
+  observedDate: string | null; // date of the satellite data, included in the Telegram message
+  telegramRecipients: number | null;
 };
 
 function resultMessage({ inspection, error }: LocationInspector, notice?: string) {
@@ -38,7 +41,7 @@ function nearbyMessage(inspection: NonNullable<LocationInspector["inspection"]>)
   return `Nearby satellite signal: about ${area} km² may be affected by flooding within ${inspection.nearby_radius_km} km (${share}% of the checked area).`;
 }
 
-export default function InspectPanel({ inspector, disabled, notice }: Props) {
+export default function InspectPanel({ inspector, disabled, notice, observedDate, telegramRecipients }: Props) {
   const { lat, lon, setLat, setLon, select, inspect, inspecting } = inspector;
   return (
     <section className="tool-card" id="inspect">
@@ -95,6 +98,11 @@ export default function InspectPanel({ inspector, disabled, notice }: Props) {
       <div className="inspect-result" role="status">
         {resultMessage(inspector, notice)}
       </div>
+      <TelegramButton
+        inspection={inspector.inspection}
+        observedDate={observedDate}
+        recipients={telegramRecipients}
+      />
     </section>
   );
 }
