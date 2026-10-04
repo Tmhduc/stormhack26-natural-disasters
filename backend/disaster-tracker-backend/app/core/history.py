@@ -88,7 +88,7 @@ def save_day(state: dict, overlay_png: str, raster: str) -> int:
         south=south,
         east=east,
         north=north,
-        width=width,
+        width=width,                 
         height=height,
         media_type="image/png",
         data=png,

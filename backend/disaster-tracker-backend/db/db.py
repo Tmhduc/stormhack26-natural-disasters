@@ -107,6 +107,14 @@ class FloodIncidentRow(Base):
     data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
 
+class TelegramSubscriberRow(Base):
+    __tablename__ = "telegram_subscribers"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str | None] = mapped_column(Text)
+    subscribed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 def libpq_url(url: str) -> str:
     """The plain postgresql:// form psycopg wants (used for LISTEN, which SQLAlchemy doesn't wrap)."""
     for prefix in ("postgresql+psycopg://", "postgres://"):

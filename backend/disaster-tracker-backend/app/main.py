@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import CACHE_DIR, LANCE_POLL_MINUTES
-from app.core import history, pipeline
+from app.core import history, pipeline, telegram
 from app.routes import health, flood
 from app.routes import history as history_routes
 
@@ -28,9 +28,12 @@ async def lifespan(app: FastAPI):
     # Keep the overlay current with LANCE: run at startup, then poll for new or
     # reprocessed tiles.
     poller = asyncio.create_task(pipeline.poll_forever(LANCE_POLL_MINUTES)) if LANCE_POLL_MINUTES > 0 else None
+    # Let people subscribe to Telegram alerts by messaging the bot /start.
+    listener = asyncio.create_task(telegram.listen_forever()) if telegram.enabled() else None
     yield
-    if poller:
-        poller.cancel()
+    for task in (poller, listener):
+        if task:
+            task.cancel()
 
 
 app = FastAPI(title="Flood monitor API", version="1.0.0", lifespan=lifespan)

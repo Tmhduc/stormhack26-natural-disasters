@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from app.config import LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
-from app.core import cache, pipeline
+from app.core import cache, pipeline, telegram
 from app.core.clipper import (
     MCDWD_CLASS_NAMES,
     MCDWD_FLOOD_CLASSES,
@@ -112,16 +112,24 @@ class TelegramAlertRequest(BaseModel):
     body: str
 
 
+@router.get("/alerts/telegram")
+def telegram_info():
+    """Whether Telegram alerts are set up, the link people open to subscribe, and how many chats get alerts."""
+    if not telegram.enabled():
+        return {"configured": False, "link": None, "recipients": 0}
+    return {"configured": True, "link": telegram.subscribe_link(), "recipients": len(telegram.recipients())}
+
+
 @router.post("/alerts/telegram")
 def telegram_alert(payload: TelegramAlertRequest):
-    """Send a responder-approved incident brief to the configured Telegram chat."""
+    """Send a responder-approved incident brief to every Telegram subscriber."""
     try:
-        message_id = send_telegram(payload.body)
+        delivered = send_telegram(payload.body)
     except ValueError as error:
         raise HTTPException(400, str(error))
     except RuntimeError as error:
         raise HTTPException(503, str(error))
-    return {"status": "sent", "message_id": message_id}
+    return {"status": "sent", "recipients": delivered}
 
 
 @router.get("/inspect", response_model=InspectResponse)
