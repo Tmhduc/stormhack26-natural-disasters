@@ -1,12 +1,14 @@
 import os
-from datetime import datetime
+from datetime import date
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from app.config import CACHE_DIR, LOCAL_RASTER, BOUNDARY_GEOJSON, TILE_ID, YEAR, DOY
-from app.core import cache
+from app.config import BOUNDARY_GEOJSON, LANCE_POLL_MINUTES
+from app.core import cache, pipeline
 from app.core.clipper import ensure_boundary_geojson, load_clipped_flood
-from app.core.downloader import download_tile
+from app.core.downloader import LanceError
 from app.models import FloodMetrics, OverlayResponse, InspectResponse
 
 router = APIRouter(prefix="/api/flood", tags=["flood"])
@@ -19,13 +21,14 @@ def get_metrics():
     except FileNotFoundError:
         raise HTTPException(404, "Raster not downloaded. Call POST /api/flood/refresh.")
 
-    mtime = os.path.getmtime(LOCAL_RASTER) if os.path.exists(LOCAL_RASTER) else None
+    state = pipeline.read_state()
     return FloodMetrics(
         **metrics,
         bounds=bounds,
-        tile_id=TILE_ID,
-        date=f"{YEAR}-{DOY}",
-        last_updated=datetime.fromtimestamp(mtime).isoformat() if mtime else None,
+        product=state.get("product"),
+        tiles=state.get("tiles", []),
+        date=state.get("date"),
+        last_updated=state.get("processed_at"),
     )
 
 
@@ -46,14 +49,21 @@ def get_boundary():
 
 
 @router.post("/refresh")
-def refresh():
+def refresh(day: Optional[date] = None, force: bool = False):
+    """Pull from LANCE now. Pass `day` (UTC, YYYY-MM-DD) to load a specific day instead of the newest."""
     try:
-        download_tile()
-        cache.invalidate()
-        _, metrics, bounds = cache.get_or_build()
-        return {"status": "refreshed", **metrics, "bounds": bounds}
+        result = pipeline.run(day=day, force=force)
+    except LanceError as e:
+        raise HTTPException(502, str(e))
     except Exception as e:
         raise HTTPException(500, str(e))
+    return {"status": "refreshed" if result["updated"] else "up to date", **result}
+
+
+@router.get("/status")
+def status():
+    """What the LANCE pipeline last loaded and when it last checked."""
+    return {**pipeline.read_state(), "poll_minutes": LANCE_POLL_MINUTES}
 
 
 @router.get("/inspect", response_model=InspectResponse)

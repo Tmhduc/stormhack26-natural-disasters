@@ -1,6 +1,7 @@
-from app.core import cache
+from app.core import pipeline
 
-overlay, metrics, bounds = cache.get_or_build()
-print("Metrics:", metrics)
-print("Bounds:", bounds)
-print("Overlay:", overlay)
+result = pipeline.run()
+print("Updated:", result["updated"])
+print("Date:", result["date"], "tiles:", ", ".join(result["tiles"]))
+print("Metrics:", result["metrics"])
+print("Bounds:", result["bounds"])

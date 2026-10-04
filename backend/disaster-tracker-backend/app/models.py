@@ -8,8 +8,9 @@ class FloodMetrics(BaseModel):
     flood_pixels: int
     flooded_km2: float
     bounds: Bounds
-    tile_id: str
-    date: str
+    product: Optional[str] = None
+    tiles: List[str] = []
+    date: Optional[str] = None  # UTC day the satellite data is from, YYYY-MM-DD
     last_updated: Optional[str] = None
 
 

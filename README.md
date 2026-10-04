@@ -34,10 +34,10 @@ The backend expects `data/vietnam_boundary/vnm_admin0.shp` and its accompanying 
 
 ### 4. Add your NASA token locally
 
-Create `data/.token` and paste in your own NASA Earthdata token:
+Create `.env` in `backend/disaster-tracker-backend` and add your own NASA Earthdata token:
 
 ```bash
-printf '%s\n' 'YOUR_NASA_TOKEN' > data/.token
+printf 'NASA_TOKEN=%s\n' 'YOUR_NASA_TOKEN' >> .env
 ```
 
 Never commit or share this file. It is ignored by Git.
@@ -57,6 +57,36 @@ uv run python test_pipeline.py
 ```
 
 The pipeline downloads the flood raster when needed and creates local files under `data/` and `cache/`. These directories are intentionally ignored because they contain credentials, downloaded/generated data, and runtime cache files.
+
+## Flood data pipeline
+
+Flood data comes from NASA LANCE's near-real-time MODIS Global Flood Product (`MCDWD_L3_F2_NRT`). The pipeline (`app/core/pipeline.py`):
+
+1. Works out which 10° tiles the Vietnam boundary touches (`h28v06`, `h28v07`, `h28v08`, `h29v07`, `h29v08`).
+2. Finds the newest UTC day on which LANCE has published all of them. The current day fills in over several hours, so it is used only once it is complete.
+3. Downloads only new tiles, or tiles LANCE has reprocessed since the last run, into `data/raw/`.
+4. Mosaics them into `data/vietnam_flood.tif`, clips to the boundary, and rebuilds the metrics and overlay PNG in `cache/`.
+
+While the API is running, it runs the pipeline on startup and then every 60 minutes. Runs where nothing has changed upstream only list the archive. You can also run it by hand:
+
+```bash
+uv run python -m app.core.pipeline                    # newest complete day
+uv run python -m app.core.pipeline --date 2026-10-01  # a specific UTC day (LANCE keeps about 8 days online)
+```
+
+API endpoints:
+
+- `POST /api/flood/refresh`: run the pipeline now. Optional query parameters: `?day=YYYY-MM-DD` and `?force=true`.
+- `GET /api/flood/status`: shows which day and tiles are loaded, when the pipeline last checked, and the last error.
+
+Optional `.env` settings:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LANCE_POLL_MINUTES` | `60` | Background polling interval. `0` turns polling off. |
+| `LANCE_PRODUCT` | `MCDWD_L3_F2_NRT` | Composite to use: `F1` (1-day), `F1C` (1-day, cloud-shadow masked), `F2` (2-day) or `F3` (3-day). |
+| `LANCE_TILES` | every tile the boundary touches | Comma-separated tile IDs, e.g. `h28v07`. |
+| `LANCE_LOOKBACK_DAYS` | `7` | How many days back to search for a complete day. |
 
 ## Team workflow
 

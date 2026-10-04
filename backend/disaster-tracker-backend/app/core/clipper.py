@@ -1,9 +1,11 @@
 import os
+from functools import lru_cache
+
 import geopandas as gpd
 import numpy as np
 import rasterio
 from rasterio.mask import mask
-from shapely.geometry import mapping
+from shapely.geometry import box, mapping
 
 from app.config import (
     LOCAL_RASTER, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
@@ -17,7 +19,36 @@ def ensure_boundary_geojson() -> str:
     return BOUNDARY_GEOJSON
 
 
+@lru_cache(maxsize=1)
+def _boundary_wgs84() -> gpd.GeoDataFrame:
+    return gpd.read_file(BOUNDARY_SHP).to_crs("EPSG:4326")
+
+
+def boundary_bounds() -> tuple[float, float, float, float]:
+    """(west, south, east, north) of the boundary in WGS84 degrees."""
+    return tuple(float(v) for v in _boundary_wgs84().total_bounds)
+
+
+def boundary_tiles() -> list[str]:
+    """Ids of the flood-product tiles the boundary touches.
+
+    MCDWD uses a 10° lat/lon grid: tile hHHvVV has its top-left corner at
+    (HH * 10 - 180)°E, (90 - VV * 10)°N.
+    """
+    boundary = _boundary_wgs84()
+    west, south, east, north = boundary_bounds()
+    tiles = []
+    for h in range(int((west + 180) // 10), int((east + 180) // 10) + 1):
+        for v in range(int((90 - north) // 10), int((90 - south) // 10) + 1):
+            left, top = h * 10 - 180, 90 - v * 10
+            if boundary.intersects(box(left, top - 10, left + 10, top)).any():
+                tiles.append(f"h{h:02d}v{v:02d}")
+    return tiles
+
+
 def load_clipped_flood() -> tuple:
+    if not os.path.exists(LOCAL_RASTER):
+        raise FileNotFoundError(LOCAL_RASTER)
     ensure_boundary_geojson()
     vietnam = gpd.read_file(BOUNDARY_SHP)
 
