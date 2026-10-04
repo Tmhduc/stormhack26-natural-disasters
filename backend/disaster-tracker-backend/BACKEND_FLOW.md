@@ -158,6 +158,11 @@ The app never sends an alert automatically just because a pixel is classified as
 | POST | `/api/flood/alerts/telegram` | Send a Telegram brief |
 | POST | `/api/flood/alerts/sms` | Send an SMS brief |
 | GET | `/api/flood/history` | Read saved history when Postgres is enabled |
+| GET | `/api/flood/history/trend` | Read daily flood totals for a trend chart |
+| GET | `/api/flood/history/incidents` | Read responder-saved inspection points |
+| POST | `/api/flood/history/incidents` | Save one inspection point |
+| DELETE | `/api/flood/history/incidents/{id}` | Remove one saved point |
+| GET | `/api/flood/history/hotspots` | Group saved points by province/city |
 
 ## Run locally
 

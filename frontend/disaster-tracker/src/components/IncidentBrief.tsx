@@ -2,7 +2,7 @@ import { useState } from "react";
 import { request, type Inspection, type Metrics } from "../api";
 import { floodClassLabel } from "../lib/floodLanguage";
 
-type Props = { inspection: Inspection | null; metrics: Metrics | null; onSave: (inspection: Inspection) => void; saved: boolean };
+type Props = { inspection: Inspection | null; metrics: Metrics | null; onSave: (inspection: Inspection) => void | Promise<void>; saved: boolean };
 
 export function buildBrief(inspection: Inspection, metrics: Metrics | null) {
   const label = floodClassLabel(inspection.class_name, inspection.class_value);

@@ -5,6 +5,8 @@ import DataNotice from "./components/DataNotice";
 import ErrorBanner from "./components/ErrorBanner";
 import FloodMap from "./components/FloodMap";
 import Footer from "./components/Footer";
+import FloodTrend from "./components/FloodTrend";
+import HotspotPanel from "./components/HotspotPanel";
 import HistoryTimeline from "./components/HistoryTimeline";
 import IncidentBrief from "./components/IncidentBrief";
 import ResponderBoard from "./components/ResponderBoard";
@@ -18,13 +20,19 @@ import StatsGrid from "./components/StatsGrid";
 import Topbar from "./components/Topbar";
 import { useFloodData } from "./hooks/useFloodData";
 import { useFloodHistory } from "./hooks/useFloodHistory";
+import { useFloodTrend } from "./hooks/useFloodTrend";
+import { useSavedIncidents } from "./hooks/useSavedIncidents";
+import { useHotspots } from "./hooks/useHotspots";
 import { useLocationInspector } from "./hooks/useLocationInspector";
 import "./App.css";
 
 function App() {
   const flood = useFloodData();
   const history = useFloodHistory(flood.updated);
+  const trend = useFloodTrend(flood.updated);
   const inspector = useLocationInspector();
+  const saved = useSavedIncidents(flood.updated);
+  const hotspots = useHotspots(flood.updated);
   const { clearResult } = inspector;
   useEffect(() => {
     const timer = setTimeout(clearResult, 0);
@@ -34,7 +42,6 @@ function App() {
   const [showFlood, setShowFlood] = useState(true);
   const [opacity, setOpacity] = useState(75);
   const [brokenImage, setBrokenImage] = useState<string | null>(null);
-  const [incidents, setIncidents] = useState<Inspection[]>([]);
   const { busy } = flood;
   const pastDay = history.days.find((d) => d.id === selectedId) ?? null;
   // The stats, notice and map show either the selected past day or the latest data.
@@ -67,11 +74,8 @@ function App() {
     inspector.clearResult();
     setSelectedId(id);
   }
-  function saveIncident(inspection: Inspection) {
-    setIncidents((current) => current.some((item) => item.lat === inspection.lat && item.lon === inspection.lon) ? current : [...current, inspection]);
-  }
-  function removeIncident(key: string) {
-    setIncidents((current) => current.filter((item) => `${item.lat.toFixed(5)},${item.lon.toFixed(5)}` !== key));
+  async function saveIncident(inspection: Inspection) {
+    await saved.save(inspection, metrics);
   }
   return (
     <div className="shell">
@@ -92,6 +96,8 @@ function App() {
             error={history.error}
           />
         )}
+        <FloodTrend points={trend.points} error={trend.error} />
+        <HotspotPanel hotspots={hotspots.hotspots} error={hotspots.error} />
         <StatsGrid metrics={metrics} />
         <div className="workspace">
           <FloodMap
@@ -131,8 +137,8 @@ function App() {
               canPlot={canPlot}
               imageError={imageError}
             />
-            <IncidentBrief inspection={inspector.inspection} metrics={metrics} onSave={saveIncident} saved={!!inspector.inspection && incidents.some((item) => item.lat === inspector.inspection?.lat && item.lon === inspector.inspection?.lon)} />
-            <ResponderBoard incidents={incidents} metrics={metrics} onRemove={removeIncident} />
+            <IncidentBrief inspection={inspector.inspection} metrics={metrics} onSave={saveIncident} saved={!!inspector.inspection && saved.incidents.some((item) => item.lat === inspector.inspection?.lat && item.lon === inspector.inspection?.lon)} />
+            <ResponderBoard incidents={saved.incidents} metrics={metrics} onRemove={saved.remove} error={saved.error} />
           </aside>
         </div>
         <SourceCard />

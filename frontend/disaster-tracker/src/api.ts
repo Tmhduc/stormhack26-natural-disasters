@@ -1,6 +1,9 @@
 export type Metrics = { flood_pixels: number; flooded_km2: number; bounds: number[]; product: string | null; tiles: string[]; date: string | null; last_updated: string | null }
 export type Overlay = { png_url: string; bounds: number[] }
 export type HistoryDay = { id: number; date: string; png_url: string; bounds: number[]; flood_pixels: number; flooded_km2: number; tiles: string[]; processed_at: string | null }
+export type TrendPoint = { date: string; flood_pixels: number; flooded_km2: number; change_percent: number | null }
+export type SavedIncident = Inspection & { id: string; observed_date: string | null; created_at: string; severity: string; status: string }
+export type Hotspot = { name: string; incidents: number; high: number; latest_date: string | null }
 export type Inspection = { inside: boolean; flooded: boolean | null; class_value?: number | null; class_name?: string | null; admin1_name?: string | null; admin1_type?: string | null; admin1_pcode?: string | null; address?: string | null; nearby_radius_km?: number | null; nearby_pixels?: number | null; nearby_flood_pixels?: number | null; nearby_class_counts?: Record<string, number>; lat: number; lon: number }
 export type GeocodeResult = { address: string; lat: number; lon: number }
 export type Geometry = { type: string; coordinates: number[][][] | number[][][][] }

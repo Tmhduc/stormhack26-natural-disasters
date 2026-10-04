@@ -1,11 +1,11 @@
 import { useState } from "react";
-import type { Inspection, Metrics } from "../api";
+import type { Inspection, Metrics, SavedIncident } from "../api";
 import { floodClassLabel } from "../lib/floodLanguage";
 import { severityDescription, severityFor } from "../lib/triage";
 
-type Props = { incidents: Inspection[]; metrics: Metrics | null; onRemove: (key: string) => void };
+type Props = { incidents: SavedIncident[]; metrics: Metrics | null; onRemove: (id: string) => void | Promise<void>; error?: string };
 
-function keyFor(item: Inspection) { return `${item.lat.toFixed(5)},${item.lon.toFixed(5)}`; }
+function keyFor(item: SavedIncident) { return item.id; }
 
 function buildReport(incidents: Inspection[], metrics: Metrics | null) {
   return [
@@ -21,7 +21,7 @@ function buildReport(incidents: Inspection[], metrics: Metrics | null) {
   ].join("\n");
 }
 
-export default function ResponderBoard({ incidents, metrics, onRemove }: Props) {
+export default function ResponderBoard({ incidents, metrics, onRemove, error }: Props) {
   const [copied, setCopied] = useState(false);
   if (!incidents.length) return null;
   const report = buildReport(incidents, metrics);
@@ -43,13 +43,14 @@ export default function ResponderBoard({ incidents, metrics, onRemove }: Props) 
       <div className="eyebrow">RESPONSE BOARD</div>
       <div className="responder-heading"><h2>Saved locations</h2><strong>{incidents.length}</strong></div>
       <p>Prioritized observations ready to share with responders.</p>
+      {error && <small className="sms-status">{error}</small>}
       <div className="incident-list">
         {incidents.map((item) => {
           const severity = severityFor(item);
           return <div className="incident-row" key={keyFor(item)}>
             <span className={`severity severity-${severity.toLowerCase()}`}>{severity}</span>
             <div><strong>{item.address || item.admin1_name || `${item.lat.toFixed(4)}, ${item.lon.toFixed(4)}`}</strong><small>{severityDescription(severity)} · {floodClassLabel(item.class_name, item.class_value)}</small></div>
-            <button aria-label="Remove saved location" onClick={() => onRemove(keyFor(item))}>×</button>
+            <button aria-label="Remove saved location" onClick={() => void onRemove(keyFor(item))}>×</button>
           </div>;
         })}
       </div>

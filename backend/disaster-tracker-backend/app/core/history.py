@@ -119,6 +119,24 @@ def list_days(limit: int) -> list[dict]:
     ]
 
 
+def trend(limit: int = 30) -> list[dict]:
+    """Return daily flood totals in oldest-to-newest order for charting."""
+    days = list_days(limit)
+    points = []
+    previous_area = None
+    for day in reversed(days):
+        area = float(day["flooded_km2"])
+        change = None if previous_area in (None, 0) else round((area - previous_area) / previous_area * 100, 1)
+        points.append({
+            "date": day["date"],
+            "flood_pixels": day["flood_pixels"],
+            "flooded_km2": area,
+            "change_percent": change,
+        })
+        previous_area = area
+    return points
+
+
 def overlay_png(image_id: int) -> bytes | None:
     """The overlay PNG saved for one day, or None if there's no such row."""
     stmt = select(ImageRow.data).where(ImageRow.id == image_id, ImageRow.source == SOURCE)

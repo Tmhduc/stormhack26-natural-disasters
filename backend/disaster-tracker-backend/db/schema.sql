@@ -71,6 +71,29 @@ create index if not exists images_pending_idx on images (id) where data is null;
 -- (Rows without a file name are not affected: Postgres treats NULLs as distinct.)
 create unique index if not exists images_source_file_key on images (source_file);
 
+-- Locations saved by responders from the dashboard's point inspector.
+create table if not exists flood_incidents (
+  id                 text primary key,
+  observed_date      date,
+  created_at         timestamptz not null default now(),
+  lat                double precision not null,
+  lon                double precision not null,
+  address            text,
+  admin1_name        text,
+  admin1_type        text,
+  class_value        integer,
+  class_name         text,
+  flooded            boolean,
+  nearby_radius_km   double precision,
+  nearby_pixels      integer,
+  nearby_flood_pixels integer,
+  severity           text not null,
+  status             text not null default 'open',
+  data               jsonb not null default '{}'::jsonb
+);
+create index if not exists flood_incidents_created_idx on flood_incidents (created_at desc);
+create index if not exists flood_incidents_admin1_idx on flood_incidents (admin1_name, created_at desc);
+
 -- Tell the API about every new image, however it was inserted, so browsers update live.
 create or replace function notify_new_image() returns trigger language plpgsql as $$
 begin
