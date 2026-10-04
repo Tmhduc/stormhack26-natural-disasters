@@ -76,6 +76,7 @@ create table if not exists flood_incidents (
   id                 text primary key,
   observed_date      date,
   created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
   lat                double precision not null,
   lon                double precision not null,
   address            text,
@@ -89,8 +90,11 @@ create table if not exists flood_incidents (
   nearby_flood_pixels integer,
   severity           text not null,
   status             text not null default 'open',
+  notes              text,
   data               jsonb not null default '{}'::jsonb
 );
+alter table flood_incidents add column if not exists updated_at timestamptz not null default now();
+alter table flood_incidents add column if not exists notes text;
 create index if not exists flood_incidents_created_idx on flood_incidents (created_at desc);
 create index if not exists flood_incidents_admin1_idx on flood_incidents (admin1_name, created_at desc);
 

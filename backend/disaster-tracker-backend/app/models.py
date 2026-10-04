@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 Bounds = List[float]
 # Bounds use [left, bottom, right, top] and are shared by overlay placement
@@ -62,12 +62,19 @@ class IncidentCreate(BaseModel):
     nearby_flood_pixels: Optional[int] = None
     nearby_class_counts: dict[str, int] = {}
     severity: str
+    notes: Optional[str] = None
 
 
 class SavedIncident(IncidentCreate):
     id: str
     created_at: str
+    updated_at: str
     status: str
+
+
+class IncidentUpdate(BaseModel):
+    status: Literal["open", "verified", "dispatched", "resolved"] | None = None
+    notes: Optional[str] = None
 
 
 class Hotspot(BaseModel):

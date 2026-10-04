@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { request, type Inspection, type Metrics, type SavedIncident } from "../api";
+import { request, type IncidentStatus, type Inspection, type Metrics, type SavedIncident } from "../api";
 import { severityFor } from "../lib/triage";
 
 /** Responder-saved locations persisted in Tiger Data. */
@@ -37,5 +37,10 @@ export function useSavedIncidents(reloadKey: number) {
     setIncidents((current) => current.filter((item) => item.id !== id));
   }
 
-  return { incidents, error, save, remove };
+  async function update(id: string, changes: { status?: IncidentStatus; notes?: string }) {
+    const updated = await request<SavedIncident>(`/api/flood/history/incidents/${encodeURIComponent(id)}`, "PATCH", changes);
+    setIncidents((current) => current.map((item) => item.id === id ? updated : item));
+  }
+
+  return { incidents, error, save, remove, update };
 }

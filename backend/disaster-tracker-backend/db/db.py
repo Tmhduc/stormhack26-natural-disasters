@@ -76,6 +76,7 @@ class FloodIncidentRow(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     observed_date: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     lat: Mapped[float] = mapped_column(Double)
     lon: Mapped[float] = mapped_column(Double)
     address: Mapped[str | None] = mapped_column(Text)
@@ -89,6 +90,7 @@ class FloodIncidentRow(Base):
     nearby_flood_pixels: Mapped[int | None] = mapped_column(Integer)
     severity: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="open")
+    notes: Mapped[str | None] = mapped_column(Text)
     data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
 

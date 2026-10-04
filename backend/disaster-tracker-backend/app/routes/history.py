@@ -1,3 +1,4 @@
+import logging
 from typing import List
 from urllib.parse import quote
 
@@ -5,9 +6,10 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.core import history, incidents
-from app.models import HistoryDay, Hotspot, IncidentCreate, SavedIncident, TrendPoint
+from app.models import HistoryDay, Hotspot, IncidentCreate, IncidentUpdate, SavedIncident, TrendPoint
 
 router = APIRouter(prefix="/api/flood/history", tags=["history"])
+log = logging.getLogger(__name__)
 
 
 @router.get("/incidents", response_model=List[SavedIncident])
@@ -29,6 +31,7 @@ def save_incident(payload: IncidentCreate):
     try:
         return incidents.save(payload.model_dump())
     except Exception as e:
+        log.exception("Could not save responder incident")
         raise HTTPException(503, f"Flood history database unavailable: {e}")
 
 
@@ -44,6 +47,23 @@ def delete_incident(incident_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(503, f"Flood history database unavailable: {e}")
+
+
+@router.patch("/incidents/{incident_id}", response_model=SavedIncident)
+def update_incident(incident_id: str, payload: IncidentUpdate):
+    """Update an incident's response status or responder notes."""
+    if not history.enabled():
+        raise HTTPException(503, "Tiger Data is not configured.")
+    try:
+        updated = incidents.update_incident(incident_id, payload.model_dump(exclude_unset=True))
+        if updated is None:
+            raise HTTPException(404, "Incident not found.")
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("Could not update responder incident")
         raise HTTPException(503, f"Flood history database unavailable: {e}")
 
 

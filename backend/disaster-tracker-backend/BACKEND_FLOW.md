@@ -162,6 +162,7 @@ The app never sends an alert automatically just because a pixel is classified as
 | GET | `/api/flood/history/incidents` | Read responder-saved inspection points |
 | POST | `/api/flood/history/incidents` | Save one inspection point |
 | DELETE | `/api/flood/history/incidents/{id}` | Remove one saved point |
+| PATCH | `/api/flood/history/incidents/{id}` | Update status or responder notes |
 | GET | `/api/flood/history/hotspots` | Group saved points by province/city |
 
 ## Run locally

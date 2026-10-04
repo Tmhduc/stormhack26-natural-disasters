@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { Inspection, Metrics, SavedIncident } from "../api";
+import type { IncidentStatus, Inspection, Metrics, SavedIncident } from "../api";
 import { floodClassLabel } from "../lib/floodLanguage";
-import { severityDescription, severityFor } from "../lib/triage";
+import { severityFor } from "../lib/triage";
 
-type Props = { incidents: SavedIncident[]; metrics: Metrics | null; onRemove: (id: string) => void | Promise<void>; error?: string };
+type Props = { incidents: SavedIncident[]; metrics: Metrics | null; onRemove: (id: string) => void | Promise<void>; onUpdate: (id: string, changes: { status?: IncidentStatus; notes?: string }) => void | Promise<void>; error?: string };
 
 function keyFor(item: SavedIncident) { return item.id; }
 
@@ -21,8 +21,9 @@ function buildReport(incidents: Inspection[], metrics: Metrics | null) {
   ].join("\n");
 }
 
-export default function ResponderBoard({ incidents, metrics, onRemove, error }: Props) {
+export default function ResponderBoard({ incidents, metrics, onRemove, onUpdate, error }: Props) {
   const [copied, setCopied] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   if (!incidents.length) return null;
   const report = buildReport(incidents, metrics);
   async function copyReport() {
@@ -47,10 +48,29 @@ export default function ResponderBoard({ incidents, metrics, onRemove, error }: 
       <div className="incident-list">
         {incidents.map((item) => {
           const severity = severityFor(item);
-          return <div className="incident-row" key={keyFor(item)}>
-            <span className={`severity severity-${severity.toLowerCase()}`}>{severity}</span>
-            <div><strong>{item.address || item.admin1_name || `${item.lat.toFixed(4)}, ${item.lon.toFixed(4)}`}</strong><small>{severityDescription(severity)} · {floodClassLabel(item.class_name, item.class_value)}</small></div>
-            <button aria-label="Remove saved location" onClick={() => void onRemove(keyFor(item))}>×</button>
+          const expanded = expandedId === item.id;
+          return <div className={`incident-row${expanded ? " is-expanded" : ""}`} key={keyFor(item)}>
+            <div className="incident-summary">
+              <span className={`severity severity-${severity.toLowerCase()}`}>{severity}</span>
+              <div className="incident-summary-copy"><strong>{item.address || item.admin1_name || `${item.lat.toFixed(4)}, ${item.lon.toFixed(4)}`}</strong><small>{item.status} · {floodClassLabel(item.class_name, item.class_value)}</small></div>
+              <button className="incident-expand" onClick={() => setExpandedId(expanded ? null : item.id)}>{expanded ? "Hide" : "Details"}</button>
+            </div>
+            {expanded && <div className="incident-details">
+              <label className="incident-status">Status
+                <select value={item.status} onChange={(event) => void onUpdate(item.id, { status: event.target.value as IncidentStatus })}>
+                  <option value="open">Open</option>
+                  <option value="verified">Verified</option>
+                  <option value="dispatched">Dispatched</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </label>
+              <label className="incident-notes">Responder notes
+                <textarea defaultValue={item.notes || ""} placeholder="Add a short field note" onBlur={(event) => {
+                  if (event.target.value !== (item.notes || "")) void onUpdate(item.id, { notes: event.target.value });
+                }} />
+              </label>
+              <button className="incident-delete" onClick={() => void onRemove(keyFor(item))}>Remove location</button>
+            </div>}
           </div>;
         })}
       </div>

@@ -5,6 +5,7 @@ import { request, type Hotspot } from "../api";
 export function useHotspots(reloadKey: number) {
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
     if (!reloadKey) return;
     let cancelled = false;
@@ -19,6 +20,6 @@ export function useHotspots(reloadKey: number) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Hotspots unavailable.");
       });
     return () => { cancelled = true; };
-  }, [reloadKey]);
-  return { hotspots, error };
+  }, [reloadKey, refreshKey]);
+  return { hotspots, error, reload: () => setRefreshKey((value) => value + 1) };
 }

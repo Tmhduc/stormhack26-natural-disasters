@@ -76,6 +76,11 @@ function App() {
   }
   async function saveIncident(inspection: Inspection) {
     await saved.save(inspection, metrics);
+    hotspots.reload();
+  }
+  async function removeIncident(id: string) {
+    await saved.remove(id);
+    hotspots.reload();
   }
   return (
     <div className="shell">
@@ -138,9 +143,9 @@ function App() {
               imageError={imageError}
             />
             <IncidentBrief inspection={inspector.inspection} metrics={metrics} onSave={saveIncident} saved={!!inspector.inspection && saved.incidents.some((item) => item.lat === inspector.inspection?.lat && item.lon === inspector.inspection?.lon)} />
-            <ResponderBoard incidents={saved.incidents} metrics={metrics} onRemove={saved.remove} error={saved.error} />
           </aside>
         </div>
+        <ResponderBoard incidents={saved.incidents} metrics={metrics} onRemove={removeIncident} onUpdate={saved.update} error={saved.error} />
         <SourceCard />
         <Footer />
       </main>
