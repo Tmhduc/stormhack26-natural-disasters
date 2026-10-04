@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiUrl, geographic } from "./api";
-import type { Metrics, Overlay } from "./api";
+import type { Inspection, Metrics, Overlay } from "./api";
 import DataNotice from "./components/DataNotice";
 import ErrorBanner from "./components/ErrorBanner";
 import FloodMap from "./components/FloodMap";
@@ -81,6 +81,10 @@ function App() {
     await saved.remove(id);
     hotspots.reload();
   }
+  async function saveIncident(inspection: Inspection) {
+    await saved.save(inspection, metrics);
+    hotspots.reload();
+  }
   return (
     <div className="shell">
       <Sidebar />
@@ -128,6 +132,8 @@ function App() {
                 inspectDisabled
               }
               historyId={pastDay?.id ?? null}
+              saved={!!inspector.inspection && saved.incidents.some((item) => item.lat === inspector.inspection?.lat && item.lon === inspector.inspection?.lon)}
+              onSave={saveIncident}
               notice={
                 pastDay
                   ? "Inspection uses the raster saved for this historical date."
