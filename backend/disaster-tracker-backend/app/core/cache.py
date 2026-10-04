@@ -1,19 +1,46 @@
 import json
 import os
 import threading
-from app.config import CACHE_DIR, PIXEL_KM2
-from app.core.clipper import load_clipped_flood
+
+import numpy as np
+from pyproj import Geod
+from rasterio.transform import xy
+
+from app.config import CACHE_DIR, FLOOD_VALUE, LOCAL_RASTER, PIXEL_KM2
+from app.core.clipper import load_clipped_flood_with_metadata
 from app.core.renderer import render_overlay_png
 
 _lock = threading.Lock()
+_METRICS_VERSION = 2
 
 
-def compute_metrics(flood_mask) -> dict:
-    """Chuyển binary flood mask thành các giá trị dashboard hiển thị."""
+def compute_metrics(flood_mask, raster_transform=None, raster_crs=None) -> dict:
+    """Tính diện tích ngập, ưu tiên diện tích địa trắc của từng pixel."""
     pixels = int(flood_mask.sum())
+    if raster_transform is None or raster_crs is None or not raster_crs.is_geographic:
+        # Chỉ dùng giá trị cấu hình dự phòng khi caller không cung cấp đủ
+        # metadata địa lý để tính diện tích thật của từng ô raster.
+        flooded_km2 = pixels * PIXEL_KM2
+    else:
+        geod = Geod(ellps="WGS84")
+        flooded_km2 = 0.0
+        for row, count in enumerate(np.count_nonzero(flood_mask, axis=1)):
+            if count == 0:
+                continue
+            # Pixel theo kinh độ/vĩ độ nhỏ dần khi đi về cực; dùng một diện
+            # tích cố định sẽ làm tăng sai diện tích ngập ở miền Bắc Việt Nam.
+            left, bottom = xy(raster_transform, row, 0, offset="ul")
+            right, top = xy(raster_transform, row, 1, offset="ul")
+            left_bottom = xy(raster_transform, row + 1, 0, offset="ul")
+            right_bottom = xy(raster_transform, row + 1, 1, offset="ul")
+            area, _ = geod.polygon_area_perimeter(
+                [left, right, right_bottom[0], left_bottom[0]],
+                [top, top, right_bottom[1], left_bottom[1]],
+            )
+            flooded_km2 += count * abs(area) / 1_000_000
     return {
         "flood_pixels": pixels,
-        "flooded_km2": round(pixels * PIXEL_KM2, 2),
+        "flooded_km2": round(flooded_km2, 2),
     }
 
 
@@ -23,11 +50,32 @@ def _cache_paths() -> dict:
         "overlay": os.path.join(CACHE_DIR, "flood_overlay.png"),
         "metrics": os.path.join(CACHE_DIR, "metrics.json"),
         "bounds": os.path.join(CACHE_DIR, "bounds.json"),
+        "manifest": os.path.join(CACHE_DIR, "manifest.json"),
+    }
+
+
+def _manifest() -> dict:
+    stat = os.stat(LOCAL_RASTER)
+    return {
+        # Đây là dữ liệu dẫn xuất; các giá trị này xác định raster và quy tắc
+        # phân loại đã được dùng để tạo ra các file cache.
+        "raster_size": stat.st_size,
+        "raster_mtime_ns": stat.st_mtime_ns,
+        "flood_value": FLOOD_VALUE,
+        "pixel_km2": PIXEL_KM2,
+        "metrics_version": _METRICS_VERSION,
     }
 
 
 def is_built() -> bool:
-    return all(os.path.exists(p) for p in _cache_paths().values())
+    paths = _cache_paths()
+    if not os.path.exists(LOCAL_RASTER) or not all(os.path.exists(p) for p in paths.values()):
+        return False
+    try:
+        with open(paths["manifest"]) as f:
+            return json.load(f) == _manifest()
+    except (OSError, json.JSONDecodeError):
+        return False
 
 
 def get_or_build():
@@ -43,7 +91,7 @@ def get_or_build():
 
 
 def rebuild():
-    """Rebuild the overlay and metrics from the current raster."""
+    """Tạo lại overlay và metrics từ raster hiện tại."""
     with _lock:
         invalidate()
         return _build()
@@ -54,14 +102,16 @@ def _build():
     paths = _cache_paths()
 
     # Clipping là bước tốn thời gian; kết quả của nó được dùng cho mọi output.
-    flood_mask, bounds = load_clipped_flood()
-    metrics = compute_metrics(flood_mask)
+    flood_mask, raster_transform, raster_crs, bounds = load_clipped_flood_with_metadata()
+    metrics = compute_metrics(flood_mask, raster_transform, raster_crs)
     render_overlay_png(flood_mask, paths["overlay"])
 
     with open(paths["metrics"], "w") as f:
         json.dump(metrics, f)
     with open(paths["bounds"], "w") as f:
         json.dump(list(bounds), f)
+    with open(paths["manifest"], "w") as f:
+        json.dump(_manifest(), f)
 
     return paths["overlay"], metrics, list(bounds)
 

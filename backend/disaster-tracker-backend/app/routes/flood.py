@@ -4,10 +4,17 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from rasterio.transform import rowcol
+from rasterio.warp import transform
+from shapely.geometry import Point
 
 from app.config import BOUNDARY_GEOJSON, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
-from app.core.clipper import ensure_boundary_geojson, load_clipped_flood
+from app.core.clipper import (
+    _boundary_wgs84,
+    ensure_boundary_geojson,
+    load_clipped_flood_with_metadata,
+)
 from app.core.downloader import LanceError
 from app.models import FloodMetrics, OverlayResponse, InspectResponse
 
@@ -55,7 +62,7 @@ def get_boundary():
 
 @router.post("/refresh")
 def refresh(day: Optional[date] = None, force: bool = False):
-    """Pull from LANCE now. Pass `day` (UTC, YYYY-MM-DD) to load a specific day instead of the newest."""
+    """Tải từ LANCE ngay; truyền `day` UTC để chọn ngày cụ thể thay vì ngày mới nhất."""
     try:
         result = pipeline.run(day=day, force=force)
     except LanceError as e:
@@ -67,26 +74,29 @@ def refresh(day: Optional[date] = None, force: bool = False):
 
 @router.get("/status")
 def status():
-    """What the LANCE pipeline last loaded and when it last checked."""
+    """Cho biết pipeline LANCE đã tải gì và kiểm tra lần cuối lúc nào."""
     return {**pipeline.read_state(), "poll_minutes": LANCE_POLL_MINUTES}
 
 
 @router.get("/inspect", response_model=InspectResponse)
 def inspect(lat: float, lon: float):
-    # Demo đọc trực tiếp array đã clip thay vì query raster gốc cho mỗi click.
-    flood_mask, bounds = load_clipped_flood()
-    left, bottom, right, top = bounds
+    # Dùng transform thật của raster đã clip thay vì nội suy trên bounds địa lý,
+    # vì cách nội suy đó sai khi raster dùng CRS chiếu.
+    flood_mask, clipped_transform, raster_crs, _ = load_clipped_flood_with_metadata()
     h, w = flood_mask.shape
 
-    # Phép đổi bên dưới giả định bounds của mask và tọa độ input dùng cùng CRS.
-    # Cần kiểm tra lại assumption này nếu đổi sản phẩm NASA hoặc boundary.
-    if not (left <= lon <= right and bottom <= lat <= top):
+    # Raster sau crop luôn là hình chữ nhật; kiểm tra boundary để không trả về
+    # dữ liệu Việt Nam cho điểm ở nước láng giềng hoặc ngoài biển.
+    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
         return InspectResponse(inside=False, lat=lat, lon=lon)
 
-    # Column tăng về phía đông; row tăng xuống dưới, nên latitude được tính từ
-    # cạnh phía bắc khi chuyển thành row index.
-    x = max(0, min(int((lon - left) / (right - left) * w), w - 1))
-    y = max(0, min(int((top - lat) / (top - bottom) * h), h - 1))
+    # Đổi điểm WGS84 từ API sang CRS raster trước khi lấy row/column. Nội suy
+    # trực tiếp trên bounds WGS84 sẽ sai với raster chiếu.
+    x_coords, y_coords = transform("EPSG:4326", raster_crs, [lon], [lat])
+    row, column = rowcol(clipped_transform, x_coords[0], y_coords[0])
+    if not (0 <= row < h and 0 <= column < w):
+        return InspectResponse(inside=False, lat=lat, lon=lon)
+
     return InspectResponse(
-        inside=True, flooded=bool(flood_mask[y, x] == 1), lat=lat, lon=lon
+        inside=True, flooded=bool(flood_mask[row, column] == 1), lat=lat, lon=lon
     )

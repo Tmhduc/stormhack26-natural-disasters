@@ -14,7 +14,7 @@ class FloodMetrics(BaseModel):
     bounds: Bounds
     product: Optional[str] = None
     tiles: List[str] = []
-    date: Optional[str] = None  # UTC day the satellite data is from, YYYY-MM-DD
+    date: Optional[str] = None  # ngày UTC của dữ liệu vệ tinh, định dạng YYYY-MM-DD
     last_updated: Optional[str] = None
 
 

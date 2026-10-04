@@ -1,12 +1,12 @@
-"""LANCE near-real-time flood pipeline.
+"""Pipeline ngập gần thời gian thực lấy dữ liệu từ LANCE.
 
     find newest complete day -> download new/reprocessed tiles -> mosaic -> clip -> metrics + overlay PNG
     -> one row per day in the Postgres `images` table (only when DATABASE_URL is set)
 
-Run once from the backend folder:
+Chạy một lần từ thư mục backend:
     uv run python -m app.core.pipeline [--date 2026-10-03] [--force]
 
-The API runs it in the background every LANCE_POLL_MINUTES, and POST /api/flood/refresh runs it on demand.
+API chạy pipeline nền theo LANCE_POLL_MINUTES; POST /api/flood/refresh chạy thủ công.
 """
 
 import argparse
@@ -25,11 +25,11 @@ from app.core.clipper import boundary_bounds, boundary_tiles
 from app.core.mosaic import build_mosaic
 
 log = logging.getLogger(__name__)
-_lock = threading.Lock()  # one run at a time, whether from the poller or a refresh request
+_lock = threading.Lock()  # chỉ cho phép một poller hoặc request refresh chạy mỗi lúc
 
 
 def read_state() -> dict:
-    """What the last run produced: day, tiles and their versions, metrics, timestamps, last error."""
+    """Đọc kết quả lần chạy cuối: ngày, tile, version, metrics, thời gian và lỗi."""
     try:
         with open(STATE_FILE) as f:
             return json.load(f)
@@ -67,11 +67,11 @@ def _save_history(state: dict) -> None:
 
 
 def run(day: date | None = None, force: bool = False) -> dict:
-    """Bring the local flood overlay up to date with LANCE.
+    """Đồng bộ overlay ngập local với dữ liệu LANCE.
 
-    `day` (UTC) pins a specific day instead of the newest complete one. Unless `force`,
-    nothing is downloaded or rebuilt when LANCE has no new day and no reprocessed tiles.
-    Returns the pipeline state plus `updated`, whether anything was rebuilt.
+    `day` (UTC) khóa vào một ngày cụ thể thay vì ngày đủ tile mới nhất. Nếu không
+    có `force`, pipeline bỏ qua khi không có ngày mới hoặc tile được reprocess.
+    Kết quả gồm state và `updated` cho biết có rebuild hay không.
     """
     with _lock:
         state = read_state()
@@ -126,7 +126,7 @@ def run(day: date | None = None, force: bool = False) -> dict:
 
 
 async def poll_forever(interval_minutes: float) -> None:
-    """Run the pipeline now and then every `interval_minutes`, logging (not raising) failures."""
+    """Chạy ngay rồi lặp lại mỗi `interval_minutes`; lỗi được log và thử lại."""
     while True:
         try:
             result = await asyncio.to_thread(run)

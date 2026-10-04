@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
             # The app still serves files; the pipeline retries the schema before its next save.
             log.exception("Could not apply db/schema.sql")
     # Keep the flood overlay in step with LANCE: fetch on startup, then poll for new/reprocessed tiles.
+    # Giữ overlay theo kịp LANCE: chạy khi khởi động rồi poll tile mới hoặc được reprocess.
     poller = asyncio.create_task(pipeline.poll_forever(LANCE_POLL_MINUTES)) if LANCE_POLL_MINUTES > 0 else None
     yield
     if poller:

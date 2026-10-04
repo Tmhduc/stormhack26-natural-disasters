@@ -26,41 +26,31 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 DATABASE_URL = os.getenv("DATABASE_URL")  # unset = keep flood history on disk only
 NASA_TOKEN = os.getenv("NASA_TOKEN")
 
-# Tiger Cloud's console URL leaves the password out; the pg_service.conf it offers for
-# download has it. Point libpq at that file so every connection picks the password up.
-PG_SERVICE_FILE = os.path.join(BASE_DIR, "pg_service.conf")
-if os.path.exists(PG_SERVICE_FILE):
-    _services = configparser.ConfigParser()
-    _services.read(PG_SERVICE_FILE)
-    if _services.sections():
-        os.environ.setdefault("PGSERVICEFILE", PG_SERVICE_FILE)
-        os.environ.setdefault("PGSERVICE", _services.sections()[0])
-
-RAW_DIR = os.path.join(DATA_DIR, "raw")  # downloaded LANCE tiles, one folder per day
+RAW_DIR = os.path.join(DATA_DIR, "raw")  # tile LANCE tải về, chia theo từng ngày
 STATE_FILE = os.path.join(DATA_DIR, "pipeline_state.json")
-LOCAL_RASTER = os.path.join(DATA_DIR, "vietnam_flood.tif")  # mosaic of the tiles, cropped to the boundary
+LOCAL_RASTER = os.path.join(DATA_DIR, "vietnam_flood.tif")  # mosaic các tile, đã giới hạn theo boundary
 BOUNDARY_SHP = os.path.join(DATA_DIR, "vietnam_boundary", "vnm_admin0.shp")
 BOUNDARY_GEOJSON = os.path.join(DATA_DIR, "vietnam_boundary", "vietnam.geojson")
 
-# --- LANCE near-real-time source (MODIS NRT Global Flood Product, MCDWD) ---
+# --- Nguồn LANCE gần thời gian thực (MODIS NRT Global Flood Product, MCDWD) ---
 LANCE_ARCHIVE_URL = "https://nrt3.modaps.eosdis.nasa.gov/archive/allData/61"
 LANCE_API_URL = "https://nrt3.modaps.eosdis.nasa.gov/api/v2/content/details/allData/61"
-# F1 / F2 / F3 = 1-, 2- and 3-day composites; F1C = 1-day with cloud shadow masked.
+# F1 / F2 / F3 = composite 1, 2 và 3 ngày; F1C = 1 ngày đã mask bóng mây.
 LANCE_PRODUCT = os.getenv("LANCE_PRODUCT", "MCDWD_L3_F2_NRT")
-# Comma-separated tile ids, e.g. "h28v07". Empty = every tile the boundary touches.
+# ID tile cách nhau bằng dấu phẩy, ví dụ "h28v07". Rỗng = mọi tile giao boundary.
 LANCE_TILES = [t.strip() for t in os.getenv("LANCE_TILES", "").split(",") if t.strip()]
-LANCE_LOOKBACK_DAYS = int(os.getenv("LANCE_LOOKBACK_DAYS", "7"))  # LANCE keeps about 8 days online
-LANCE_POLL_MINUTES = float(os.getenv("LANCE_POLL_MINUTES", "60"))  # 0 turns background polling off
+LANCE_LOOKBACK_DAYS = int(os.getenv("LANCE_LOOKBACK_DAYS", "7"))  # LANCE thường giữ khoảng 8 ngày
+LANCE_POLL_MINUTES = float(os.getenv("LANCE_POLL_MINUTES", "60"))  # 0 thì tắt poller nền
 
-# --- LANCE near-real-time source (MODIS NRT Global Flood Product, MCDWD) ---
+# --- Nguồn LANCE gần thời gian thực (MODIS NRT Global Flood Product, MCDWD) ---
 LANCE_ARCHIVE_URL = "https://nrt3.modaps.eosdis.nasa.gov/archive/allData/61"
 LANCE_API_URL = "https://nrt3.modaps.eosdis.nasa.gov/api/v2/content/details/allData/61"
-# F1 / F2 / F3 = 1-, 2- and 3-day composites; F1C = 1-day with cloud shadow masked.
+# F1 / F2 / F3 = composite 1, 2 và 3 ngày; F1C = 1 ngày đã mask bóng mây.
 LANCE_PRODUCT = os.getenv("LANCE_PRODUCT", "MCDWD_L3_F2_NRT")
-# Comma-separated tile ids, e.g. "h28v07". Empty = every tile the boundary touches.
+# ID tile cách nhau bằng dấu phẩy, ví dụ "h28v07". Rỗng = mọi tile giao boundary.
 LANCE_TILES = [t.strip() for t in os.getenv("LANCE_TILES", "").split(",") if t.strip()]
-LANCE_LOOKBACK_DAYS = int(os.getenv("LANCE_LOOKBACK_DAYS", "7"))  # LANCE keeps about 8 days online
-LANCE_POLL_MINUTES = float(os.getenv("LANCE_POLL_MINUTES", "60"))  # 0 turns background polling off
+LANCE_LOOKBACK_DAYS = int(os.getenv("LANCE_LOOKBACK_DAYS", "7"))  # LANCE thường giữ khoảng 8 ngày
+LANCE_POLL_MINUTES = float(os.getenv("LANCE_POLL_MINUTES", "60"))  # 0 thì tắt poller nền
 
 # Các hằng số mô tả sản phẩm raster hiện tại. FLOOD_VALUE là giá trị lớp ngập,
 # sẽ được chuyển thành 1 trong binary mask mà phần còn lại của app sử dụng.
