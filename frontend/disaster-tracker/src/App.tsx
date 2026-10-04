@@ -23,6 +23,7 @@ import { useFloodHistory } from "./hooks/useFloodHistory";
 import { useFloodTrend } from "./hooks/useFloodTrend";
 import { useSavedIncidents } from "./hooks/useSavedIncidents";
 import { useHotspots } from "./hooks/useHotspots";
+import { useSystemHealth } from "./hooks/useSystemHealth";
 import { useLocationInspector } from "./hooks/useLocationInspector";
 import "./App.css";
 
@@ -33,6 +34,7 @@ function App() {
   const inspector = useLocationInspector();
   const saved = useSavedIncidents(flood.updated);
   const hotspots = useHotspots(flood.updated);
+  const health = useSystemHealth();
   const { clearResult } = inspector;
   useEffect(() => {
     const timer = setTimeout(clearResult, 0);
@@ -86,7 +88,7 @@ function App() {
     <div className="shell">
       <Sidebar />
       <main id="overview">
-        <Topbar connected={flood.connected} busy={busy} />
+        <Topbar connected={flood.connected} busy={busy} health={health} />
         <PageHeading busy={busy} onRefresh={() => reload(true)} />
         <DataNotice metrics={metrics} busy={busy} onReconnect={() => reload()} />
         <div className="reload-help"><p><strong>Reload dashboard</strong> reads saved backend data. <strong>Refresh satellite data</strong> checks NASA and processes new imagery when available.</p><label><input type="checkbox" checked={flood.autoReload} onChange={e => flood.setAutoReload(e.target.checked)} />Auto reload every 60s</label></div>

@@ -5,6 +5,7 @@ export type TrendPoint = { date: string; flood_pixels: number; flooded_km2: numb
 export type IncidentStatus = "open" | "verified" | "dispatched" | "resolved"
 export type SavedIncident = Inspection & { id: string; observed_date: string | null; created_at: string; updated_at: string; severity: string; status: IncidentStatus; notes: string | null }
 export type Hotspot = { name: string; incidents: number; high: number; latest_date: string | null }
+export type Health = { status: string; database: { configured: boolean; connected: boolean; error?: string }; pipeline: { loaded: boolean; date: string | null; last_checked: string | null; last_processed: string | null }; integrations: { google_geocoding: boolean; telegram: boolean; twilio: boolean } }
 export type Inspection = { inside: boolean; flooded: boolean | null; class_value?: number | null; class_name?: string | null; admin1_name?: string | null; admin1_type?: string | null; admin1_pcode?: string | null; address?: string | null; nearby_radius_km?: number | null; nearby_pixels?: number | null; nearby_flood_pixels?: number | null; nearby_class_counts?: Record<string, number>; lat: number; lon: number }
 export type GeocodeResult = { address: string; lat: number; lon: number }
 export type Geometry = { type: string; coordinates: number[][][] | number[][][][] }
