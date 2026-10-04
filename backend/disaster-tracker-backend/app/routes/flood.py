@@ -3,9 +3,10 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from rasterio.io import MemoryFile
 from pydantic import BaseModel
 from app.config import LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
-from app.core import cache, pipeline, telegram
+from app.core import cache, history, pipeline, telegram
 from app.core.clipper import (
     MCDWD_CLASS_NAMES,
     MCDWD_FLOOD_CLASSES,
@@ -143,9 +144,29 @@ async def telegram_webhook(request: Request):
 
 
 @router.get("/inspect", response_model=InspectResponse)
-def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
+def inspect(
+    lat: float,
+    lon: float,
+    radius_km: float = Query(2.0, ge=0, le=25),
+    history_id: int | None = Query(None, ge=1),
+):
     # Read one GeoTIFF pixel; only metrics and the overlay need the full mask.
-    flooded = inspect_flood_point(lat, lon)
+    if history_id is None:
+        flooded = inspect_flood_point(lat, lon)
+        nearby = inspect_flood_neighborhood(lat, lon, radius_km) if flooded is not None else None
+    else:
+        if not history.enabled():
+            raise HTTPException(503, "Historical inspection requires the history database.")
+        try:
+            raster_bytes = history.original_raster(history_id)
+        except Exception as error:
+            raise HTTPException(503, f"Historical raster unavailable: {error}")
+        if raster_bytes is None:
+            raise HTTPException(404, "The saved raster for this history date is unavailable.")
+        with MemoryFile(raster_bytes) as memory_file:
+            with memory_file.open() as dataset:
+                flooded = inspect_flood_point(lat, lon, dataset)
+                nearby = inspect_flood_neighborhood(lat, lon, radius_km, dataset) if flooded is not None else None
     if flooded is None:
         return InspectResponse(inside=False, lat=lat, lon=lon)
 
@@ -153,7 +174,6 @@ def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
     is_flood = None if flooded == 255 else flooded in MCDWD_FLOOD_CLASSES
     area = administrative_area(lat, lon)
     address = reverse_geocode(lat, lon)
-    nearby = inspect_flood_neighborhood(lat, lon, radius_km)
     return InspectResponse(
         inside=True,
         flooded=is_flood,

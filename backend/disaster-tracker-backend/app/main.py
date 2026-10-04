@@ -53,6 +53,7 @@ app.add_middleware(
         "https://distrack.tech",
         "https://www.distrack.tech",
         "https://distrack-frontend.onrender.com",
+        "https://api.distrack.tech"
     ],
     allow_methods=["*"],
     allow_headers=["*"],

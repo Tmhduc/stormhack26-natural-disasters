@@ -18,6 +18,7 @@ import {
 type Props = {
   inspector: LocationInspector;
   inspectDisabled: boolean;
+  inspectionHistoryId: number | null;
   acquisitionDate: string | null;
   boundary: Boundary | null;
   overlay: Overlay | null;
@@ -35,6 +36,7 @@ type Props = {
 export default function FloodMap({
   inspector,
   inspectDisabled,
+  inspectionHistoryId,
   acquisitionDate,
   boundary,
   overlay,
@@ -81,7 +83,7 @@ export default function FloodMap({
   }
   const vbWidth = MAP_WIDTH / zoom,
     vbHeight = MAP_HEIGHT / zoom;
-  const result = !archiveDate && inspector.inspection?.lat === Number(lat) && inspector.inspection?.lon === Number(lon) ? inspector.inspection : null;
+  const result = inspector.inspection?.lat === Number(lat) && inspector.inspection?.lon === Number(lon) ? inspector.inspection : null;
   const vbX = center.x - vbWidth / 2,
     vbY = center.y - vbHeight / 2;
 
@@ -327,11 +329,11 @@ export default function FloodMap({
           <strong>{lat.trim() && lon.trim() && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) ? `${Number(lat).toFixed(4)} lat / ${Number(lon).toFixed(4)} lon` : 'Select a point on the map'}</strong>
           {result?.admin1_name && <div className="selected-place">📍 {result.admin1_type || 'Khu vực'}: <strong>{result.admin1_name}</strong></div>}
           {result?.address && <div className="selected-address">{result.address}</div>}
-          <p>{archiveDate ? 'Historical view · inspection is available for Latest only.' : inspector.inspecting ? 'Inspecting satellite pixel…' : result ? !result.inside ? 'Outside raster coverage' : result.flooded === null ? 'Classification unavailable' : result.flooded ? 'Flood-classified pixel detected' : 'No flood-classified pixel detected' : 'Not inspected yet'}</p>
+          <p>{inspector.inspecting ? 'Inspecting satellite pixel…' : result ? !result.inside ? 'Outside raster coverage' : result.flooded === null ? 'Classification unavailable' : result.flooded ? 'Flood-classified pixel detected' : 'No flood-classified pixel detected' : 'Not inspected yet'}</p>
           {result && <small>What the satellite saw: {floodClassLabel(result.class_name, result.class_value)}</small>}
           <small>Acquisition: {acquisitionDate || 'unavailable'} · UTC</small>
-          <button disabled={inspectDisabled || inspector.inspecting} onClick={() => void inspector.inspect()}>{inspector.inspecting ? 'Inspecting…' : '⌖ Inspect this location'}</button>
-          {!archiveDate && inspector.error && <p role="alert">{inspector.error}</p>}
+          <button disabled={inspectDisabled || inspector.inspecting} onClick={() => void inspector.inspect(inspectionHistoryId)}>{inspector.inspecting ? 'Inspecting…' : '⌖ Inspect this location'}</button>
+          {inspector.error && <p role="alert">{inspector.error}</p>}
           <small>Satellite classification does not confirm ground conditions.</small>
         </div>}
         <div className="map-hint">Drag to move · Use + / − to zoom · Click to select</div>
