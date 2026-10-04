@@ -39,9 +39,11 @@ class HistoryDay(BaseModel):
 
 
 class InspectResponse(BaseModel):
-    """Kết quả kiểm tra một cặp latitude/longitude với flood mask."""
+    """Kết quả kiểm tra tọa độ, giữ lại class gốc của sản phẩm MCDWD."""
 
     inside: bool
     flooded: Optional[bool] = None
+    class_value: Optional[int] = None
+    class_name: Optional[str] = None
     lat: float
     lon: float

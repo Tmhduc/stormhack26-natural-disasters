@@ -16,9 +16,15 @@ function resultMessage({ inspection, error }: LocationInspector, notice?: string
     );
   const where = `${inspection.lat.toFixed(4)}, ${inspection.lon.toFixed(4)}`;
   if (!inspection.inside) return `${where}: Outside raster coverage.`;
+  const classDetails = inspection.class_name
+    ? `Class ${inspection.class_value} (${inspection.class_name})`
+    : "Unknown class";
+  if (inspection.flooded === null) {
+    return `${where}: ${classDetails}; insufficient data.`;
+  }
   return inspection.flooded
-    ? `${where}: Flood-classified pixel detected.`
-    : `${where}: No flood-classified pixel at this location.`;
+    ? `${where}: ${classDetails}; flood detected.`
+    : `${where}: ${classDetails}; no unusual flood.`;
 }
 
 export default function InspectPanel({ inspector, disabled, notice }: Props) {

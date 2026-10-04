@@ -15,6 +15,15 @@ from app.config import (
     LOCAL_RASTER, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
 )
 
+MCDWD_CLASS_NAMES = {
+    0: "no_water",
+    1: "reference_water",
+    2: "recurring_flood",
+    3: "unusual_flood",
+    255: "insufficient_data",
+}
+MCDWD_FLOOD_CLASSES = frozenset({2, 3})
+
 
 def ensure_boundary_geojson() -> str:
     """Tạo file boundary dễ dùng cho browser từ shapefile gốc."""
@@ -101,8 +110,8 @@ def load_clipped_flood_with_metadata() -> tuple:
     return _load_clipped_flood_cached(_raster_signature())
 
 
-def inspect_flood_point(lat: float, lon: float) -> bool | None:
-    """Đọc đúng pixel chứa điểm WGS84, trả None nếu điểm không hợp lệ."""
+def inspect_flood_point(lat: float, lon: float) -> int | None:
+    """Đọc và giữ nguyên class gốc của pixel chứa điểm WGS84."""
     if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
         return None
 
@@ -112,4 +121,4 @@ def inspect_flood_point(lat: float, lon: float) -> bool | None:
         if not (0 <= row < src.height and 0 <= column < src.width):
             return None
         value = src.read(1, window=Window(column, row, 1, 1))[0, 0]
-    return bool(value == FLOOD_VALUE)
+    return int(value)

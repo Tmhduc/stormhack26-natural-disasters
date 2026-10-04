@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse
 from app.config import BOUNDARY_GEOJSON, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
 from app.core.clipper import (
+    MCDWD_CLASS_NAMES,
+    MCDWD_FLOOD_CLASSES,
     ensure_boundary_geojson,
     inspect_flood_point,
 )
@@ -80,6 +82,13 @@ def inspect(lat: float, lon: float):
     if flooded is None:
         return InspectResponse(inside=False, lat=lat, lon=lon)
 
+    class_name = MCDWD_CLASS_NAMES.get(flooded, "unknown")
+    is_flood = None if flooded == 255 else flooded in MCDWD_FLOOD_CLASSES
     return InspectResponse(
-        inside=True, flooded=flooded, lat=lat, lon=lon
+        inside=True,
+        flooded=is_flood,
+        class_value=flooded,
+        class_name=class_name,
+        lat=lat,
+        lon=lon,
     )

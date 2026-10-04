@@ -340,12 +340,29 @@ Endpoint này:
 2. Mở mosaic và chuyển điểm WGS84 sang CRS của raster.
 3. Dùng transform thật của mosaic để xác định pixel chứa điểm.
 4. Đọc đúng một cửa sổ `1x1` từ band raster.
-5. So sánh giá trị pixel với `FLOOD_VALUE`.
+5. Trả nguyên class gốc và tên class của MCDWD.
 
 Điểm ngoài Việt Nam hoặc ngoài array sẽ trả `inside: false`. Tọa độ người
 dùng gửi lên vẫn được giữ nguyên trong response. Endpoint này không cần load
 toàn bộ flood mask; toàn bộ mask chỉ được tạo một lần cho metrics và PNG
 overlay.
+
+Response trong lãnh thổ Việt Nam có thêm:
+
+```json
+{
+      "inside": true,
+      "flooded": true,
+      "class_value": 3,
+      "class_name": "unusual_flood",
+      "lat": 21.0285,
+      "lon": 105.8542
+}
+```
+
+`flooded` là field tiện dụng: class `2` và `3` trả `true`, class `0` và `1`
+trả `false`, còn class `255` trả `null` vì dữ liệu không đủ. `class_value` và
+`class_name` mới là thông tin gốc cần dùng khi phân tích chi tiết.
 
 ## 9. Database layer
 
