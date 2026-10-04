@@ -6,8 +6,10 @@ import numpy as np
 import rasterio
 from rasterio.mask import mask
 from rasterio.transform import array_bounds
+from rasterio.warp import transform as transform_coordinates
 from rasterio.warp import transform_bounds
-from shapely.geometry import box, mapping
+from rasterio.windows import Window
+from shapely.geometry import Point, box, mapping
 
 from app.config import (
     LOCAL_RASTER, BOUNDARY_SHP, BOUNDARY_GEOJSON, FLOOD_VALUE
@@ -97,3 +99,17 @@ def load_clipped_flood() -> tuple:
 def load_clipped_flood_with_metadata() -> tuple:
     """Trả về mask cùng transform và CRS cần cho việc tra cứu tọa độ."""
     return _load_clipped_flood_cached(_raster_signature())
+
+
+def inspect_flood_point(lat: float, lon: float) -> bool | None:
+    """Đọc đúng pixel chứa điểm WGS84, trả None nếu điểm không hợp lệ."""
+    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
+        return None
+
+    with rasterio.open(LOCAL_RASTER) as src:
+        x, y = transform_coordinates("EPSG:4326", src.crs, [lon], [lat])
+        row, column = src.index(x[0], y[0])
+        if not (0 <= row < src.height and 0 <= column < src.width):
+            return None
+        value = src.read(1, window=Window(column, row, 1, 1))[0, 0]
+    return bool(value == FLOOD_VALUE)

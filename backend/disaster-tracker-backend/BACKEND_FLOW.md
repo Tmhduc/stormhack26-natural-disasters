@@ -336,14 +336,16 @@ Trả về pipeline state đã lưu và khoảng poll cấu hình.
 
 Endpoint này:
 
-1. Load mask đã clip cùng transform và CRS thật.
-2. Kiểm tra điểm WGS84 có nằm trong geometry Việt Nam hay không.
-3. Chuyển điểm WGS84 sang CRS của raster.
-4. Dùng transform thật để lấy row/column.
-5. Đọc giá trị flood mask tại pixel đó.
+1. Kiểm tra điểm WGS84 có nằm trong geometry Việt Nam hay không.
+2. Mở mosaic và chuyển điểm WGS84 sang CRS của raster.
+3. Dùng transform thật của mosaic để xác định pixel chứa điểm.
+4. Đọc đúng một cửa sổ `1x1` từ band raster.
+5. So sánh giá trị pixel với `FLOOD_VALUE`.
 
 Điểm ngoài Việt Nam hoặc ngoài array sẽ trả `inside: false`. Tọa độ người
-dùng gửi lên vẫn được giữ nguyên trong response.
+dùng gửi lên vẫn được giữ nguyên trong response. Endpoint này không cần load
+toàn bộ flood mask; toàn bộ mask chỉ được tạo một lần cho metrics và PNG
+overlay.
 
 ## 9. Database layer
 

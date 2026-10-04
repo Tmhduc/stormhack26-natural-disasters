@@ -4,16 +4,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from rasterio.transform import rowcol
-from rasterio.warp import transform
-from shapely.geometry import Point
-
 from app.config import BOUNDARY_GEOJSON, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
 from app.core.clipper import (
-    _boundary_wgs84,
     ensure_boundary_geojson,
-    load_clipped_flood_with_metadata,
+    inspect_flood_point,
 )
 from app.core.downloader import LanceError
 from app.models import FloodMetrics, OverlayResponse, InspectResponse
@@ -80,23 +75,11 @@ def status():
 
 @router.get("/inspect", response_model=InspectResponse)
 def inspect(lat: float, lon: float):
-    # Dùng transform thật của raster đã clip thay vì nội suy trên bounds địa lý,
-    # vì cách nội suy đó sai khi raster dùng CRS chiếu.
-    flood_mask, clipped_transform, raster_crs, _ = load_clipped_flood_with_metadata()
-    h, w = flood_mask.shape
-
-    # Raster sau crop luôn là hình chữ nhật; kiểm tra boundary để không trả về
-    # dữ liệu Việt Nam cho điểm ở nước láng giềng hoặc ngoài biển.
-    if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
-        return InspectResponse(inside=False, lat=lat, lon=lon)
-
-    # Đổi điểm WGS84 từ API sang CRS raster trước khi lấy row/column. Nội suy
-    # trực tiếp trên bounds WGS84 sẽ sai với raster chiếu.
-    x_coords, y_coords = transform("EPSG:4326", raster_crs, [lon], [lat])
-    row, column = rowcol(clipped_transform, x_coords[0], y_coords[0])
-    if not (0 <= row < h and 0 <= column < w):
+    # Chỉ đọc một pixel trong GeoTIFF; metrics và overlay mới cần toàn bộ mask.
+    flooded = inspect_flood_point(lat, lon)
+    if flooded is None:
         return InspectResponse(inside=False, lat=lat, lon=lon)
 
     return InspectResponse(
-        inside=True, flooded=bool(flood_mask[row, column] == 1), lat=lat, lon=lon
+        inside=True, flooded=flooded, lat=lat, lon=lon
     )
