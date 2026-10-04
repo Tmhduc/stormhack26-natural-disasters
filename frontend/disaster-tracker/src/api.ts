@@ -1,4 +1,5 @@
-export type Metrics = { flood_pixels: number; flooded_km2: number; bounds: number[]; tile_id: string; date: string; last_updated: string | null }
+export type PipelineStatus = { date?: string; tiles?: string[]; product?: string; checked_at?: string; processed_at?: string; last_error?: string | null; poll_minutes?: number }
+export type Metrics = { flood_pixels: number; flooded_km2: number; bounds: number[]; tile_id?: string; tiles?: string[]; product?: string | null; date: string | null; last_updated: string | null }
 export type Overlay = { png_url: string; bounds: number[] }
 export type Inspection = { inside: boolean; flooded: boolean | null; lat: number; lon: number }
 export type Geometry = { type: string; coordinates: number[][][] | number[][][][] }

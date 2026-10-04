@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { geographic, request } from "./api";
-import type { Boundary, Inspection, Metrics, Overlay } from "./api";
+import type { Boundary, Inspection, Metrics, Overlay, PipelineStatus } from "./api";
 import "./App.css";
 
 const places = [
@@ -14,7 +14,36 @@ const number = (value: number | undefined) =>
   value === undefined
     ? "—"
     : value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not available yet';
 function App() {
+  const [search, setSearch] = useState('');
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState('');
+  const mapCard = useRef<HTMLElement>(null);
+  const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase();
+  const matches = places.filter(p => normalize(p.name + ' ' + (p.name === 'Hanoi' ? 'Hà Nội' : p.name === 'Da Nang' ? 'Đà Nẵng' : 'Hồ Chí Minh Sài Gòn')).includes(normalize(search.trim())));
+  useEffect(() => {
+    const changed = () => setFullscreen(document.fullscreenElement === mapCard.current);
+    document.addEventListener('fullscreenchange', changed);
+    return () => document.removeEventListener('fullscreenchange', changed);
+  }, []);
+  async function toggleFullscreen() {
+    setFullscreenError('');
+    try {
+      if (document.fullscreenElement === mapCard.current) await document.exitFullscreen();
+      else if (mapCard.current?.requestFullscreen) await mapCard.current.requestFullscreen();
+      else setFullscreenError('Fullscreen is unavailable in this browser.');
+    } catch { setFullscreenError('Could not open fullscreen. Try a regular browser window.'); }
+  }
+  function selectPlace(p: typeof places[number]) {
+    setLat(String(p.lat)); setLon(String(p.lon)); setInspection(null); setInspectError(''); setSearch('');
+    setView({ zoom: 2, cx: x(p.lon), cy: y(p.lat) });
+  }
+
+  const [pipeline, setPipeline] = useState<PipelineStatus | null>(null);
+  const [statusError, setStatusError] = useState('');
+  const [reportMessage, setReportMessage] = useState('');
+
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [overlay, setOverlay] = useState<Overlay | null>(null);
   const [boundary, setBoundary] = useState<Boundary | null>(null);
@@ -24,7 +53,12 @@ function App() {
   const [imageError, setImageError] = useState(false);
   const [showFlood, setShowFlood] = useState(true);
   const [opacity, setOpacity] = useState(75);
-  const [zoom, setZoom] = useState(1);
+  const [view, setView] = useState({ zoom: 1, cx: 300, cy: 320 });
+  const zoom = view.zoom;
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ id: number; x: number; y: number; cx: number; cy: number; inverse: DOMMatrix; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
+  function changeZoom(next: number) { setView(v => ({ ...v, zoom: Math.max(1, Math.min(5, next)) })); }
   const [lat, setLat] = useState("16.0544");
   const [lon, setLon] = useState("108.2022");
   const [inspection, setInspection] = useState<Inspection | null>(null);
@@ -49,13 +83,16 @@ function App() {
         request<Metrics>("/api/flood/metrics"),
         request<Overlay>("/api/flood/overlay"),
         request<Boundary>("/api/flood/boundary"),
+        request<PipelineStatus>("/api/flood/status"),
       ]);
-      const [m, o, b] = results;
+      const [m, o, b, status] = results;
+      setPipeline(status.status === 'fulfilled' ? status.value : null);
+      setStatusError(status.status === 'rejected' ? 'Pipeline status is unavailable on this backend.' : '');
       setMetrics(m.status === "fulfilled" ? m.value : null);
       setOverlay(o.status === "fulfilled" ? o.value : null);
       setBoundary(b.status === "fulfilled" ? b.value : null);
-      setUpdated(Date.now());
-      const errors = results.flatMap((r) =>
+      setUpdated(v => v + 1);
+      const errors = results.slice(0, 3).flatMap((r) =>
         r.status === "rejected"
           ? [r.reason instanceof Error ? r.reason.message : "Data unavailable"]
           : []
@@ -64,6 +101,7 @@ function App() {
     } catch (e) {
       if (!refresh) {
         setConnected(false);
+        setPipeline(null);
         setMetrics(null);
         setOverlay(null);
       }
@@ -115,6 +153,14 @@ function App() {
       inspectingRef.current = false;
     }
   }
+  const tiles = metrics?.tiles || (metrics?.tile_id ? [metrics.tile_id] : pipeline?.tiles || []);
+  function downloadReport() {
+    if (!metrics) return;
+    const report = { project: 'Distrack', exported_at: new Date().toISOString(), metrics, pipeline, note: 'Satellite flood classification; not an official emergency alert.' };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = `distrack-${metrics.date || 'observation'}.json`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000); setReportMessage('Observation report downloaded.');
+  }
   const canPlot = !!overlay && geographic(overlay.bounds);
   const paths =
     boundary?.features.flatMap((f) => {
@@ -137,15 +183,15 @@ function App() {
     }) || [];
   const vbWidth = 600 / zoom,
     vbHeight = 640 / zoom;
-  const vbX = (600 - vbWidth) / 2,
-    vbY = (640 - vbHeight) / 2;
+  const vbX = view.cx - vbWidth / 2,
+    vbY = view.cy - vbHeight / 2;
   return (
     <div className="shell">
       <aside className="sidebar">
         <a className="brand" href="#">
           <span className="brand-mark">◈</span>
           <span>
-            terra<span className="brand-dot">.</span>
+            Distrack<span className="brand-dot">.</span>
             <small>DISASTER INTELLIGENCE</small>
           </span>
         </a>
@@ -203,9 +249,9 @@ function App() {
           <div>
             <strong>Vietnam flood monitoring</strong>
             <span>
-              NASA MODIS · Tile {metrics?.tile_id || "h28v07"} ·{" "}
+              NASA MODIS · {tiles.length ? `${tiles.length} tiles` : "Coverage pending"} ·{" "}
               {metrics
-                ? `Acquisition ${metrics.date} (year / day of year)`
+                ? `Acquisition ${metrics.date || "pending"} (UTC)`
                 : "Waiting for satellite data"}
             </span>
           </div>
@@ -227,6 +273,14 @@ function App() {
             </span>
           </div>
         )}
+        <section className="pipeline-panel" aria-label="Data pipeline status">
+          <div className="pipeline-heading"><div><div className="eyebrow">OBSERVATION STATUS</div><h2>Know when your data was captured.</h2></div><button className="report-button" disabled={!metrics || busy} onClick={downloadReport}>↓ Download report</button></div>
+          <div className="pipeline-grid"><div><span>ACQUISITION DAY · UTC</span><strong>{metrics?.date || pipeline?.date || 'Awaiting imagery'}</strong></div><div><span>LAST ARCHIVE CHECK</span><strong>{formatTime(pipeline?.checked_at)}</strong></div><div><span>AUTOMATIC CHECKS</span><strong>{pipeline?.poll_minutes === undefined ? 'Unavailable' : pipeline.poll_minutes === 0 ? 'Disabled' : `Every ${pipeline.poll_minutes} minutes`}</strong></div></div>
+          <div className="tile-list">{tiles.length ? tiles.map(tile => <span key={tile}>{tile}</span>) : <span>No tiles loaded yet</span>}</div>
+          {pipeline?.last_error && <p className="pipeline-warning" role="alert">Latest pipeline error: {pipeline.last_error}</p>}
+          {statusError && <p className="pipeline-warning">{statusError}</p>}
+          <p className="export-status" role="status">{reportMessage || 'Satellite acquisition time may differ from the latest processing time.'}</p>
+        </section>
         <section className="stats" aria-label="Satellite metrics">
           <article>
             <div className="stat-label">
@@ -248,12 +302,12 @@ function App() {
             <div className="stat-label">
               Satellite coverage <span>◎</span>
             </div>
-            <h2>{metrics?.tile_id || "—"}</h2>
-            <p>Single MODIS tile · Vietnam clipping</p>
+            <h2>{tiles.length || "—"} <small>tiles</small></h2>
+            <p>Multi-tile mosaic · Vietnam clipping</p>
           </article>
           <article>
             <div className="stat-label">
-              Raster last downloaded <span>◷</span>
+              Raster last processed <span>◷</span>
             </div>
             <h2 className="date-stat">
               {metrics?.last_updated
@@ -271,22 +325,50 @@ function App() {
           </article>
         </section>
         <div className="workspace">
-          <section className="map-card" id="map">
+          <section className="map-card" id="map" ref={mapCard}>
             <div className="card-header">
               <div>
                 <h2>Flood observation map</h2>
                 <p>Vietnam / geographic reference</p>
               </div>
-              <span className="pill">
-                {overlay ? "SATELLITE LAYER" : "AWAITING DATA"}
-              </span>
+              <div className="map-header-actions"><span className="pill">{overlay ? "SATELLITE LAYER" : "AWAITING DATA"}</span><button className="fullscreen-button" onClick={() => void toggleFullscreen()} aria-label={fullscreen ? 'Exit fullscreen map' : 'Open fullscreen map'}>{fullscreen ? '↙ Exit fullscreen' : '⛶ Fullscreen'}</button></div>
+            </div>
+            <div className="map-search-bar">
+              <label htmlFor="place-search">Find a city</label>
+              <input id="place-search" type="search" placeholder="Hà Nội, Đà Nẵng, Hồ Chí Minh…" value={search} onChange={e => setSearch(e.target.value)} />
+              {search.trim() && <div className="search-results" aria-label="Matching cities">{matches.length ? matches.map(p => <button key={p.name} onClick={() => selectPlace(p)}>⌖ {p.name}<small>{p.lat.toFixed(4)}, {p.lon.toFixed(4)}</small></button>) : <p>No matching city. Search supports Hanoi, Da Nang and Ho Chi Minh City; other locations can be selected on the map.</p>}</div>}
+              {fullscreenError && <p className="pipeline-warning" role="alert">{fullscreenError}</p>}
             </div>
             <div className="map">
               <svg
                 ref={svg}
+                className={dragging ? 'is-dragging' : ''}
+                onPointerDown={e => {
+                  if (e.button !== 0 || drag.current) return;
+                  const matrix = e.currentTarget.getScreenCTM(); if (!matrix) return;
+                  suppressClick.current = false;
+                  drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, inverse: matrix.inverse(), moved: false };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={e => {
+                  const start = drag.current; if (!start || start.id !== e.pointerId) return;
+                  if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 5 && !start.moved) return;
+                  start.moved = true; suppressClick.current = true; setDragging(true);
+                  const from = new DOMPoint(start.x, start.y).matrixTransform(start.inverse);
+                  const to = new DOMPoint(e.clientX, e.clientY).matrixTransform(start.inverse);
+                  setView(v => ({ ...v, cx: start.cx - (to.x - from.x), cy: start.cy - (to.y - from.y) }));
+                }}
+                onPointerUp={e => {
+                  if (drag.current?.id !== e.pointerId) return;
+                  drag.current = null; setDragging(false);
+                  if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+                }}
+                onPointerCancel={() => { drag.current = null; suppressClick.current = true; setDragging(false); }}
+                onLostPointerCapture={() => { drag.current = null; setDragging(false); }}
                 viewBox={`${vbX} ${vbY} ${vbWidth} ${vbHeight}`}
                 aria-label="Vietnam geographic reference map; use the coordinate form to inspect a location"
                 onClick={(e) => {
+                  if (suppressClick.current) { suppressClick.current = false; return; }
                   if (!svg.current) return;
                   const matrix = svg.current.getScreenCTM();
                   if (!matrix) return;
@@ -411,27 +493,28 @@ function App() {
               <div className="map-controls">
                 <button
                   aria-label="Zoom in"
-                  disabled={zoom >= 3}
-                  onClick={() => setZoom((z) => Math.min(3, z + 0.5))}
+                  disabled={zoom >= 5}
+                  onClick={() => changeZoom(zoom + 0.5)}
                 >
                   +
                 </button>
                 <button
                   aria-label="Zoom out"
                   disabled={zoom <= 1}
-                  onClick={() => setZoom((z) => Math.max(1, z - 0.5))}
+                  onClick={() => changeZoom(zoom - 0.5)}
                 >
                   −
                 </button>
-                <button aria-label="Reset map zoom" onClick={() => setZoom(1)}>
+                <button aria-label="Reset map zoom" onClick={() => setView({ zoom: 1, cx: 300, cy: 320 })}>
                   ⌂
                 </button>
               </div>
               <div className="map-legend">
                 <i /> Satellite-detected flood <span>● City reference</span>
               </div>
+              <div className="selected-location" aria-live="polite"><div className="eyebrow">SELECTED LOCATION</div><strong>{lat && lon ? `${Number(lat).toFixed(4)} lat / ${Number(lon).toFixed(4)} lon` : 'Select a location'}</strong><p>{inspecting ? 'Inspecting satellite pixel…' : inspection ? !inspection.inside ? 'Outside raster coverage' : inspection.flooded === null ? 'Classification unavailable' : inspection.flooded ? 'Flood-classified pixel detected' : 'No flood-classified pixel detected' : 'Coordinates selected · not inspected yet'}</p><small>Acquisition: {metrics?.date || 'unavailable'} · UTC</small><button disabled={inspecting || busy || !metrics || !geographic(metrics.bounds)} onClick={() => void inspect()}>⌖ Inspect this location</button>{inspectError && <p role="alert">{inspectError}</p>}</div>
               <div className="map-hint">
-                Click the map to select coordinates
+                Drag to move · Use + / − to zoom · Click to select
               </div>
             </div>
             <div className="map-footer">
@@ -451,12 +534,7 @@ function App() {
                 {places.map((p) => (
                   <button
                     key={p.name}
-                    onClick={() => {
-                      setLat(String(p.lat));
-                      setLon(String(p.lon));
-                      setInspection(null);
-                      setInspectError("");
-                    }}
+                    onClick={() => selectPlace(p)}
                   >
                     {p.name}
                   </button>
@@ -575,14 +653,12 @@ function App() {
             <div className="eyebrow">KNOW YOUR SOURCE</div>
             <h2>Observation, with context.</h2>
             <p>
-              This prototype uses a single NASA MODIS tile clipped to Vietnam.
-              The backend selects a fixed acquisition date; refreshing downloads
-              that configured tile. Coverage is limited to the raster footprint.
+              NASA MODIS tiles are mosaicked and clipped to Vietnam. The backend searches for the newest complete UTC day and checks for updates on its configured schedule. Observation coverage is limited to the loaded raster.
             </p>
           </div>
           <div className="source-details">
             <span>
-              DATA PRODUCT<strong>MCDWD L3 F2 NRT</strong>
+              DATA PRODUCT<strong>{metrics?.product || pipeline?.product || "NASA MODIS"}</strong>
             </span>
             <span>
               SUPPORTED HAZARD<strong>Flooding</strong>
@@ -593,7 +669,7 @@ function App() {
           </div>
         </section>
         <footer>
-          terra. <span>StormHacks 2026 · Situational awareness prototype</span>
+          Distrack. <span>StormHacks 2026 · Situational awareness prototype</span>
           <span>Consult official local alerts for emergency guidance.</span>
         </footer>
       </main>
