@@ -78,11 +78,22 @@ def _load_clipped_flood() -> tuple:
     return flood_mask, transform, raster_crs, tuple(float(value) for value in bounds)
 
 
+@lru_cache(maxsize=1)
+def _load_clipped_flood_cached(raster_signature: tuple[int, int]) -> tuple:
+    """Cache bước crop tốn thời gian cho đến khi file mosaic thay đổi."""
+    return _load_clipped_flood()
+
+
+def _raster_signature() -> tuple[int, int]:
+    stat = os.stat(LOCAL_RASTER)
+    return stat.st_size, stat.st_mtime_ns
+
+
 def load_clipped_flood() -> tuple:
-    flood_mask, _, _, bounds = _load_clipped_flood()
+    flood_mask, _, _, bounds = _load_clipped_flood_cached(_raster_signature())
     return flood_mask, bounds
 
 
 def load_clipped_flood_with_metadata() -> tuple:
     """Trả về mask cùng transform và CRS cần cho việc tra cứu tọa độ."""
-    return _load_clipped_flood()
+    return _load_clipped_flood_cached(_raster_signature())
