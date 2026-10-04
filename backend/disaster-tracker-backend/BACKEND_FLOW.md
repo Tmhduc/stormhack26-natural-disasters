@@ -1,424 +1,197 @@
-# Luồng Backend
+# Backend flow
 
-Tài liệu này mô tả luồng thực tế của backend theo code hiện tại.
+This guide explains the flood dashboard backend in simple terms. It is meant for teammates who need to run, debug, or extend the project.
 
-## 1. Tổng quan hệ thống
+## What the backend does
 
-```text
-FastAPI khởi động
-      |
-      v
-Poller LANCE chạy nền ----------------------+
-      |                                      |
-      v                                      |
-Tìm ngày có đủ các tile cần thiết            |
-      |                                      |
-      v                                      |
-Tải các tile mới hoặc được xử lý lại         |
-      |                                      |
-      v                                      |
-Ghép thành data/vietnam_flood.tif             |
-      |                                      |
-      v                                      |
-Cắt theo boundary Việt Nam                  |
-      |                                      |
-      v                                      |
-Tạo flood mask (1 = ngập, 0 = còn lại)      |
-      |                                      |
-      +--> metrics.json                      |
-      +--> bounds.json                       |
-      +--> flood_overlay.png                 |
-                                             |
-API đọc state và cache <--------------------+
-```
+1. Finds the newest complete NASA LANCE flood tiles for Vietnam.
+2. Downloads and combines them into one GeoTIFF.
+3. Clips the raster to Vietnam and creates an overlay plus metrics.
+4. Inspects clicked coordinates and returns flood, area, and address information.
+5. Builds responder briefs and sends them to Telegram or SMS when configured.
 
-Backend dùng NASA LANCE và sản phẩm MODIS Near-Real-Time Global Flood
-Product. Pipeline không tải một file cố định duy nhất. Nó tìm toàn bộ tile
-cắt qua Việt Nam, chỉ chọn một ngày có đủ tile, ghép các tile thành mosaic rồi
-mới cắt theo boundary Việt Nam.
+The frontend talks to FastAPI. Credentials stay in the backend `.env` file.
 
-## 2. Cấu hình và dữ liệu đầu vào
-
-[`app/config.py`](app/config.py) đọc file `.env` trong thư mục backend.
-
-Các cấu hình chính:
-
-- `NASA_TOKEN`: bearer token dùng khi gọi API hoặc archive LANCE.
-- Token phải được đặt trong biến môi trường hoặc file `.env`; backend không đọc
-      token từ thư mục `data/`.
-- `LANCE_PRODUCT`: mặc định là `MCDWD_L3_F2_NRT`.
-- `LANCE_TILES`: danh sách tile cho phép, phân cách bằng dấu phẩy. Nếu để
-  rỗng, backend tự tính các tile giao với boundary Việt Nam.
-- `LANCE_LOOKBACK_DAYS`: số ngày lùi lại khi tìm một ngày có đủ tile.
-- `LANCE_DATA_LAG_DAYS`: số ngày chờ trước khi tự động chọn dữ liệu. Mặc định
-      `1`, để tránh chọn ngày hiện tại còn thiếu coverage; vẫn là dữ liệu NRT.
-- `LANCE_POLL_MINUTES`: khoảng cách giữa hai lần poll. Đặt `0` để tắt poller.
-
-Boundary nguồn:
+## Important folders
 
 ```text
-data/vietnam_boundary/vnm_admin0.shp
+app/main.py                 FastAPI app and startup lifecycle
+app/config.py               Environment variables and local paths
+app/routes/                 HTTP endpoints
+app/core/pipeline.py        Refresh workflow and saved state
+app/core/downloader.py      LANCE discovery and downloads
+app/core/mosaic.py          Tile validation and GeoTIFF merging
+app/core/clipper.py         Boundary clipping and point inspection
+app/core/cache.py           Metrics, bounds, and overlay generation
+app/core/geocoder.py        Optional Google address lookup
+app/core/alerts.py          Optional Telegram and Twilio alerts
+data/                       Local inputs, raster files, and pipeline state
+cache/                      Generated overlays and metric files
+db/                         Optional Postgres models and schema
 ```
 
-Boundary hành chính cấp tỉnh/thành dùng để reverse lookup tọa độ:
+Do not commit generated files, downloaded rasters, or credentials.
 
-```text
-data/vietnam_boundary/vnm_admin1.shp
+## Environment setup
+
+Create `backend/disaster-tracker-backend/.env`:
+
+```env
+NASA_TOKEN=...
+GOOGLE_MAPS_API_KEY=...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM_NUMBER=...
 ```
 
-Các file được tạo hoặc tải về:
+Only configure the services you use.
 
-```text
-data/raw/YYYYDOY/<tile>.tif       tile nguồn tải từ LANCE
-data/vietnam_flood.tif             mosaic các tile đã ghép
-data/pipeline_state.json           trạng thái và lỗi của pipeline
-cache/flood_overlay.png            ảnh overlay trong suốt
-cache/metrics.json                 số liệu diện tích và số pixel
-cache/bounds.json                  bounds WGS84 của overlay
-cache/manifest.json                fingerprint của dữ liệu tạo cache
-```
+Pipeline settings:
 
-Các file trong danh sách trên là artifact runtime, không phải tất cả đều có
-sẵn ngay sau khi clone repository. Chúng chỉ xuất hiện sau khi pipeline chạy
-thành công ít nhất một lần. Lệnh chạy thủ công là:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LANCE_PRODUCT` | `MCDWD_L3_F2_NRT` | NASA flood product |
+| `LANCE_TILES` | automatic | Tile IDs; empty means every tile touching Vietnam |
+| `LANCE_LOOKBACK_DAYS` | `7` | Days to search backward |
+| `LANCE_DATA_LAG_DAYS` | `1` | Prefer a complete previous day |
+| `LANCE_POLL_MINUTES` | `60` | Background refresh interval; `0` disables it |
 
-```bash
-uv run python -m app.core.pipeline --force
-```
+## Refresh pipeline
 
-Các hằng số cũ `TILE_ID`, `YEAR`, `DOY` và `TILE_URL` vẫn còn trong
-configuration để tương thích ngược, nhưng không được pipeline hiện tại dùng.
+The pipeline runs at startup when polling is enabled and can be triggered with `POST /api/flood/refresh`.
 
-## 3. Metadata sản phẩm MCDWD đã xác nhận
+1. **Choose tiles.** If `LANCE_TILES` is empty, `boundary_tiles()` finds every 10° MCDWD tile that intersects Vietnam.
+2. **Choose a complete date.** `find_latest()` checks recent UTC dates until every required tile is online.
+3. **Download changed tiles.** Local files are reused when their size and upstream modification time still match.
+4. **Validate downloads.** Files are written as `.part`, checked for the expected byte count, and opened with Rasterio before replacing the old file.
+5. **Build the mosaic.** Compatible tiles are merged without resampling into `data/vietnam_flood.tif`.
+6. **Build the cache.** The mosaic is clipped to Vietnam and converted into metrics, bounds, and a transparent flood PNG.
 
-Raster MCDWD có trong repository chứa metadata sau:
+The pipeline writes its state to `data/pipeline_state.json`. A lock prevents a background poll and a manual refresh from running at the same time.
 
-- Một band duy nhất.
-- Kiểu dữ liệu `uint8`.
-- Lưới địa lý 250 m.
-- Giá trị `255`: dữ liệu không đủ, dùng làm nodata.
-- Giá trị `0`: không có nước.
-- Giá trị `1`: nước chuẩn theo reference water.
-- Giá trị `2`: vùng ngập lặp lại theo mùa.
-- Giá trị `3`: vùng ngập bất thường.
+## Flood classes
 
-Backend hiện coi class `3` là vùng ngập để tạo binary flood mask.
+The source raster has one `uint8` band:
 
-Lưu ý: raster mẫu được commit trong repository là tile `h28v07`, chỉ phủ vùng
-`100–110E, 10–20N`. Boundary Việt Nam thực tế kéo dài khoảng `102–117E` và
-`7–23N`, nên raster mẫu này không đủ để đại diện cho toàn bộ Việt Nam. Phải
-chạy pipeline nhiều tile để tạo dữ liệu hoàn chỉnh.
+| Value | Meaning |
+| --- | --- |
+| `0` | No water |
+| `1` | Usual/reference water |
+| `2` | Recurring flood area |
+| `3` | Unusual flood area |
+| `255` | Insufficient data |
 
-## 4. Khởi động ứng dụng
+The current binary mask treats classes `2` and `3` as flooded. The frontend converts technical names into phrases such as “Unusual flooding detected”.
 
-[`app/main.py`](app/main.py) thực hiện các bước:
+For geographic rasters, area uses geodesic pixel calculations. The configured `0.0625 km²` value is only a fallback.
 
-1. Tạo ứng dụng FastAPI.
-2. Bật CORS cho các cổng frontend local.
-3. Tạo thư mục `cache/` và mount tại `/static`.
-4. Đăng ký health router và flood router.
-5. Khởi chạy `pipeline.poll_forever()` trong lifespan nếu poller được bật.
+## Caching
 
-Poller chạy ngay một lần khi ứng dụng khởi động, sau đó đợi số phút đã cấu
-hình rồi chạy lại. Lỗi pipeline được ghi log và thử lại ở chu kỳ sau, không làm
-server dừng. Khi server shutdown, task poller bị hủy.
+- The WGS84 Vietnam boundary is cached once per process.
+- The clipped flood mask is cached using the raster file size and modification time.
+- Transformed boundary geometries use a four-entry LRU cache keyed by CRS.
+- Disk cache files are reused while `manifest.json` still matches the raster.
 
-## 5. Luồng pipeline refresh
+Point inspection reads one GeoTIFF pixel. Neighborhood inspection reads only a small window, so neither operation needs the full mask.
 
-Luồng chính nằm trong [`app/core/pipeline.py`](app/core/pipeline.py). Một
-`threading.Lock` ngăn poller và request refresh chạy đồng thời trong cùng
-process.
+## Address lookup
 
-### 5.1. Tìm tile cần tải
+Local admin1 boundary data identifies the province or city for every inspected point.
 
-Pipeline dùng `LANCE_TILES` nếu cấu hình có giá trị. Nếu không, hàm
-`clipper.boundary_tiles()` đọc boundary WGS84 và xác định các tile MCDWD lưới
-10 độ giao với Việt Nam.
+If `GOOGLE_MAPS_API_KEY` is configured:
 
-Ví dụ, Việt Nam có thể cần nhiều tile theo cả chiều kinh độ và vĩ độ; không
-nên giả định chỉ có `h28v07`.
+- Reverse lookup adds a formatted Vietnamese address to inspection results.
+- `GET /api/flood/geocode?q=...` searches addresses.
+- Repeated lookups are cached.
+- The key stays on the backend.
 
-### 5.2. Tìm ngày có đủ dữ liệu
+A rural result may be a Plus Code rather than a street address.
 
-Nếu request không chỉ định `day`, hàm `downloader.find_latest()` bắt đầu từ
-ngày UTC hiện tại trừ `LANCE_DATA_LAG_DAYS`, rồi lùi dần trong phạm vi
-`LANCE_LOOKBACK_DAYS`. Mặc định pipeline bắt đầu từ ngày hôm qua thay vì ngày
-hiện tại đang còn được bổ sung dữ liệu.
+## Responder workflow
 
-Một ngày chỉ được chọn khi tất cả tile cần thiết đều xuất hiện và có trạng
-thái `Online` trên API LANCE. Nếu thiếu một tile, ngày đó bị bỏ qua. Nếu không
-có ngày nào đầy đủ, pipeline ném `LanceError`. `LANCE_DATA_LAG_DAYS` không làm
-mất tính NRT; nó chỉ ưu tiên coverage ổn định hơn ngày mới nhất.
+After inspecting a point, the frontend can create an incident brief containing:
 
-Request `POST /api/flood/refresh?day=YYYY-MM-DD` vẫn tải đúng ngày được chỉ
-định, không áp dụng độ trễ tự động.
+- Address and coordinates
+- Plain-language flood finding
+- Nearby affected-area estimate
+- Observation date
+- Google Maps link
 
-Điều này tránh việc ghép một mosaic chỉ có một phần tile của ngày hiện tại,
-vì dữ liệu near-real-time thường được công bố dần theo các lượt vệ tinh bay
-qua.
+Saved points appear in the responder board. Triage is only a prioritization aid:
 
-### 5.3. Tải và kiểm tra tile
+- **High:** unusual flood class or at least 30% of nearby cells show flood signals.
+- **Moderate:** at least 10% of nearby cells show flood signals.
+- **Watch:** no confirmed local flood signal or insufficient evidence.
 
-Mỗi tile được lưu ở:
+Always verify conditions on the ground before dispatching help.
 
-```text
-data/raw/YYYYDOY/<filename>.tif
-```
+## Alerts
 
-Downloader dùng HTTP session có retry cho một số lỗi tạm thời. Nếu có
-`NASA_TOKEN`, request được gửi kèm:
+### Telegram
 
-```text
-Authorization: Bearer <NASA_TOKEN>
-```
+`POST /api/flood/alerts/telegram` sends a manual incident brief to the configured chat. The bot must be started by the recipient or added to the target group.
 
-File mới luôn được ghi vào file `.part`. Sau khi tải xong, backend:
+Telegram is the recommended hackathon channel because it supports long briefs and map links without SMS billing.
 
-1. Đếm số byte thực nhận.
-2. So sánh với kích thước LANCE công bố.
-3. Mở file bằng Rasterio để phát hiện HTML, payload lỗi hoặc GeoTIFF hỏng.
-4. Dùng `os.replace()` để đổi tên file `.part` thành file thật.
-5. Gắn thời gian sửa file theo `mtime` của phiên bản upstream.
+### Twilio SMS
 
-Nếu một bước kiểm tra thất bại, file `.part` bị xóa và file thật cũ không bị
-thay thế.
+`POST /api/flood/alerts/sms` sends a manual brief through Twilio. Phone numbers must use E.164 format, such as `+14165551234`.
 
-Tile được xem là hiện hành khi path tồn tại, kích thước khớp và mtime khớp
-metadata của LANCE. Khi đó downloader không tải lại tile.
+Trial accounts restrict recipients and custom message content. A paid or upgraded account is needed for custom incident briefs.
 
-### 5.4. Kiểm tra và ghép mosaic
+The app never sends an alert automatically just because a pixel is classified as flooded.
 
-[`app/core/mosaic.py`](app/core/mosaic.py) đọc tile đầu tiên để lấy CRS,
-resolution, dtype, số band và nodata làm metadata tham chiếu.
+## HTTP endpoints
 
-Các tile còn lại phải có cùng:
-
-- CRS.
-- Resolution.
-- Kiểu dữ liệu.
-- Số lượng band.
-- Giá trị nodata.
-
-Nếu khác, pipeline dừng với lỗi rõ ràng thay vì để `rasterio.merge` âm thầm
-kế thừa profile sai từ tile đầu tiên.
-
-Bounds boundary đầu vào là WGS84. Backend chuyển bounds sang CRS của tile rồi
-gọi `rasterio.merge.merge()` với `target_aligned_pixels=True` để giữ lưới
-pixel gốc, không tự resample.
-
-Mosaic được ghi vào:
-
-```text
-data/vietnam_flood.tif.part
-```
-
-Sau khi ghi xong mới dùng `os.replace()` để thay thế:
-
-```text
-data/vietnam_flood.tif
-```
-
-Các tile cũ không còn cần thiết sẽ được prune sau khi rebuild thành công.
-
-### 5.5. State của pipeline
-
-Pipeline lưu state nguyên tử tại:
-
-```text
-data/pipeline_state.json
-```
-
-State gồm product, ngày dữ liệu, danh sách tile, version của từng tile, thời
-điểm kiểm tra, thời điểm xử lý, metrics, bounds và lỗi gần nhất.
-
-Nếu product, ngày, version tile, mosaic và cache đều khớp state cũ, pipeline
-chỉ cập nhật `checked_at` và trả về `updated: false`. Nếu khác hoặc chạy với
-`force=true`, pipeline tải/ghép lại dữ liệu.
-
-## 6. Cắt raster và tạo flood mask
-
-[`app/core/clipper.py`](app/core/clipper.py) thực hiện:
-
-1. Đọc mosaic bằng Rasterio.
-2. Đọc boundary bằng GeoPandas.
-3. Chuyển boundary sang CRS của raster.
-4. Dùng `rasterio.mask.mask()` với `crop=True` và `all_touched=False`.
-5. Lấy band đầu tiên.
-6. Chuyển `data == FLOOD_VALUE` thành `1`, giá trị còn lại thành `0`.
-
-Với sản phẩm hiện tại:
-
-```text
-FLOOD_VALUE = 3
-```
-
-Bounds của array sau khi crop ban đầu nằm trong CRS raster. Backend chuyển
-bounds này ngược về EPSG:4326 trước khi lưu cache hoặc trả về API, để frontend
-luôn nhận bounds dạng:
-
-```text
-[left, bottom, right, top]
-```
-
-## 7. Tính diện tích và tạo cache
-
-[`app/core/cache.py`](app/core/cache.py) dùng cùng một flood mask để tạo:
-
-- `metrics.json`: số pixel ngập và diện tích ngập.
-- `flood_overlay.png`: ảnh PNG trong suốt do
-  [`app/core/renderer.py`](app/core/renderer.py) tạo.
-- `bounds.json`: bounds WGS84 của ảnh.
-- `manifest.json`: thông tin xác định dữ liệu nguồn của cache.
-
-Pixel địa lý có diện tích thay đổi theo vĩ độ. Vì vậy với raster geographic,
-backend dùng `pyproj.Geod` để tính diện tích địa trắc theo từng hàng pixel.
-`0.0625 km²` chỉ còn là giá trị fallback khi thiếu metadata địa lý hoặc raster
-là CRS projected chưa có cách tính diện tích tương ứng.
-
-`manifest.json` lưu kích thước file raster, mtime raster, flood class, pixel
-area fallback và phiên bản cách tính metrics. Cache chỉ được xem là hợp lệ
-khi cả bốn file tồn tại và manifest khớp raster hiện tại.
-
-Nếu thiếu file hoặc manifest không khớp, request kế tiếp sẽ build lại cache.
-
-## 8. Các endpoint HTTP
-
-Các route nằm trong [`app/routes/flood.py`](app/routes/flood.py).
-
-### `GET /api/health`
-
-Trả về:
-
-```json
-{"status": "ok"}
-```
-
-Đây chỉ là liveness check, xác nhận FastAPI đang trả response. Endpoint này
-không kiểm tra raster, boundary, NASA token hoặc cache đã sẵn sàng hay chưa.
-
-### `GET /api/flood/metrics`
-
-Build hoặc đọc cache, đọc pipeline state rồi trả về metrics, product, tile,
-ngày dữ liệu, thời điểm xử lý và bounds WGS84.
-
-Ví dụ:
-
-```json
-{
-  "flood_pixels": 12345,
-  "flooded_km2": 771.56,
-  "bounds": [102.1, 8.4, 109.5, 23.4],
-  "product": "MCDWD_L3_F2_NRT",
-  "tiles": ["h28v07", "h29v07"],
-  "date": "2026-10-03",
-  "last_updated": "2026-10-03T12:30:00+00:00"
-}
-```
-
-### `GET /api/flood/overlay`
-
-Đảm bảo cache tồn tại rồi trả về URL PNG và bounds WGS84:
-
-```json
-{
-  "png_url": "/static/flood_overlay.png",
-  "bounds": [102.1, 8.4, 109.5, 23.4]
-}
-```
-
-PNG không chứa metadata địa lý. Client phải dùng bounds để đặt ảnh lên bản đồ.
-
-### `GET /api/flood/boundary`
-
-Nếu `vietnam.geojson` chưa tồn tại, backend tạo nó từ shapefile rồi trả về
-GeoJSON cho frontend.
-
-### `POST /api/flood/refresh`
-
-Chạy pipeline ngay lập tức.
-
-- `day`: ngày UTC cụ thể, định dạng `YYYY-MM-DD`.
-- `force=true`: rebuild kể cả khi state cho rằng dữ liệu chưa đổi.
-- Lỗi LANCE trả HTTP 502.
-- Lỗi khác của pipeline trả HTTP 500.
-
-### `GET /api/flood/status`
-
-Trả về pipeline state đã lưu và khoảng poll cấu hình.
-
-### `GET /api/flood/inspect?lat=<latitude>&lon=<longitude>`
-
-Endpoint này:
-
-1. Kiểm tra điểm WGS84 có nằm trong geometry Việt Nam hay không.
-2. Mở mosaic và chuyển điểm WGS84 sang CRS của raster.
-3. Dùng transform thật của mosaic để xác định pixel chứa điểm.
-4. Đọc đúng một cửa sổ `1x1` từ band raster.
-5. Trả nguyên class gốc và tên class của MCDWD tại đúng tọa độ.
-6. Đọc thêm vùng lân cận mặc định bán kính `2 km` để thống kê class.
-
-Điểm ngoài Việt Nam hoặc ngoài array sẽ trả `inside: false`. Tọa độ người
-dùng gửi lên vẫn được giữ nguyên trong response. Endpoint này không cần load
-toàn bộ flood mask; toàn bộ mask chỉ được tạo một lần cho metrics và PNG
-overlay.
-
-Response trong lãnh thổ Việt Nam có thêm:
-
-```json
-{
-      "inside": true,
-      "flooded": true,
-      "class_value": 3,
-      "class_name": "unusual_flood",
-      "lat": 21.0285,
-      "lon": 105.8542
-}
-```
-
-`flooded` là field tiện dụng: class `2` và `3` trả `true`, class `0` và `1`
-trả `false`, còn class `255` trả `null` vì dữ liệu không đủ. `class_value` và
-`class_name` mới là thông tin gốc cần dùng khi phân tích chi tiết.
-
-Backend cũng tra polygon admin1 local và trả `admin1_name`, `admin1_type` và
-`admin1_pcode`, ví dụ `Da Nang city`, `City`, `VN48`. Đây là tỉnh/thành phố,
-không phải địa chỉ số nhà hay tên đường. Để map một địa chỉ cụ thể thành tọa
-độ cần thêm forward geocoding như Nominatim, Google hoặc Mapbox trước khi gọi
-endpoint inspect.
-
-Kết quả lân cận nằm trong `nearby_radius_km`, `nearby_pixels`,
-`nearby_flood_pixels` và `nearby_class_counts`. Đây là thống kê trong một
-window raster nhỏ quanh điểm, chỉ tính pixel nằm trong boundary Việt Nam; nó
-không thay thế class tại đúng tọa độ.
-
-## 9. Database layer
-
-[`db/db.py`](db/db.py) và [`db/schema.sql`](db/schema.sql) định nghĩa các
-bảng events, bulletins và images.
-
-Hiện tại database layer chưa được import hoặc khởi tạo trong FastAPI startup,
-flood routes hay pipeline. `DATABASE_URL` được đọc trong config nhưng chưa
-tham gia vào luồng xử lý flood hiện tại.
-
-## 10. Kiểm thử và chạy local
-
-Khởi động backend:
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/health` | Check that FastAPI is responding |
+| GET | `/api/flood/status` | Read pipeline state and errors |
+| POST | `/api/flood/refresh` | Check LANCE and rebuild when needed |
+| GET | `/api/flood/metrics` | Read current metrics |
+| GET | `/api/flood/overlay` | Get overlay URL and geographic bounds |
+| GET | `/api/flood/boundary` | Get the simplified browser boundary |
+| GET | `/api/flood/inspect` | Inspect a point and its neighborhood |
+| GET | `/api/flood/geocode` | Search addresses through Google |
+| POST | `/api/flood/alerts/telegram` | Send a Telegram brief |
+| POST | `/api/flood/alerts/sms` | Send an SMS brief |
+| GET | `/api/flood/history` | Read saved history when Postgres is enabled |
+
+## Run locally
+
+Backend:
 
 ```bash
 cd backend/disaster-tracker-backend
+uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-Chạy regression test offline:
+API docs: `http://localhost:8000/docs`
+
+Backend regression tests:
 
 ```bash
-uv run python -m unittest test_backend.py
+uv run python -m unittest -v test_backend.py
 ```
 
-`test_pipeline.py` là smoke test thật. Nó có thể gọi mạng, tải tile LANCE,
-tạo mosaic, rebuild cache và ghi state; vì vậy không nên dùng nó làm unit test
-mặc định trong CI nếu chưa mock API và thư mục dữ liệu.
+Frontend:
 
-Regression test hiện tại kiểm tra:
+```bash
+cd frontend/disaster-tracker
+npm install
+npm run dev
+npm run build
+```
 
-- Downloader từ chối file bị thiếu byte.
-- Mosaic từ chối các tile có metadata không tương thích.
+The pipeline smoke test contacts NASA and writes runtime data. Do not use it as a default CI unit test without mocking network and filesystem inputs.
+
+## Limitations
+
+- Satellite classifications are observations, not ground truth.
+- The map does not include road conditions, shelters, population, or live traffic.
+- Google addresses can be approximate.
+- Alerts require third-party credentials and manual confirmation.
+- Database history is optional and separate from the local file pipeline.

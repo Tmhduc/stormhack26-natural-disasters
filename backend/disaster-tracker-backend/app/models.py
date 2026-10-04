@@ -2,31 +2,31 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 Bounds = List[float]
-# Bounds có thứ tự [left, bottom, right, top], được dùng chung cho việc đặt
-# overlay lên bản đồ và kiểm tra một điểm tọa độ.
+# Bounds use [left, bottom, right, top] and are shared by overlay placement
+# and coordinate inspection.
 
 
 class FloodMetrics(BaseModel):
-    """Các chỉ số tổng hợp của raster hiện tại để dashboard hiển thị."""
+    """Summary metrics for the current raster displayed by the dashboard."""
 
     flood_pixels: int
     flooded_km2: float
     bounds: Bounds
     product: Optional[str] = None
     tiles: List[str] = []
-    date: Optional[str] = None  # ngày UTC của dữ liệu vệ tinh, định dạng YYYY-MM-DD
+    date: Optional[str] = None  # Satellite observation date in YYYY-MM-DD UTC.
     last_updated: Optional[str] = None
 
 
 class OverlayResponse(BaseModel):
-    """URL và vị trí địa lý của ảnh overlay trong suốt đã render."""
+    """URL and geographic placement for the rendered transparent overlay."""
 
     png_url: str
     bounds: Bounds
 
 
 class HistoryDay(BaseModel):
-    """Một ngày đã lưu trong database: chỉ số ngập và overlay của ngày đó."""
+    """A saved observation day with flood metrics and its overlay."""
 
     id: int
     date: str  # UTC day the satellite data is from, YYYY-MM-DD
@@ -39,7 +39,7 @@ class HistoryDay(BaseModel):
 
 
 class InspectResponse(BaseModel):
-    """Kết quả kiểm tra tọa độ, giữ lại class gốc của sản phẩm MCDWD."""
+    """Coordinate inspection result preserving the original MCDWD class."""
 
     inside: bool
     flooded: Optional[bool] = None

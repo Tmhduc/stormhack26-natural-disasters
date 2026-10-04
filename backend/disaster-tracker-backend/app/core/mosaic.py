@@ -6,9 +6,9 @@ from rasterio.warp import transform_bounds
 
 
 def build_mosaic(tile_paths: list[str], out_path: str, bounds: tuple[float, float, float, float]) -> str:
-    """Ghép tile thành GeoTIFF phủ `bounds` (tây, nam, đông, bắc theo WGS84).
+    """Merge tiles into a GeoTIFF covering WGS84 (west, south, east, north) bounds.
 
-    Vùng không có tile phủ lên sẽ dùng giá trị nodata của tile nguồn.
+    Areas not covered by a tile use the source tile's nodata value.
     """
     if not tile_paths:
         raise ValueError("At least one tile is required to build a mosaic")
@@ -32,15 +32,15 @@ def build_mosaic(tile_paths: list[str], out_path: str, bounds: tuple[float, floa
                 "count": tile.count,
                 "nodata": tile.nodata,
             }
-            # Rasterio.merge lấy profile của tile đầu tiên. Nếu tile khác lệch
-            # lưới, kết quả có thể sai pixel hoặc sai tọa độ mà không báo.
+            # rasterio.merge uses the first tile's profile. Incompatible tiles
+            # could otherwise produce wrong pixels or coordinates silently.
             if current != reference:
                 raise ValueError(f"Tile metadata is incompatible with {tile_paths[0]}: {tile_path}")
 
     data, transform = merge(
         tile_paths,
         bounds=transform_bounds("EPSG:4326", profile["crs"], *bounds),
-        target_aligned_pixels=True,  # giữ lưới pixel nguồn, không resample
+        target_aligned_pixels=True,  # Preserve the source pixel grid; do not resample.
         nodata=reference["nodata"],
     )
     profile.update(
@@ -56,7 +56,8 @@ def build_mosaic(tile_paths: list[str], out_path: str, bounds: tuple[float, floa
     if reference["nodata"] is not None:
         profile.update(nodata=reference["nodata"])
 
-    # Ghi cạnh file đích rồi đổi tên nguyên tử để reader không thấy mosaic dở dang.
+    # Write beside the destination, then atomically replace it so readers never
+    # observe a partially written mosaic.
     partial = out_path + ".part"
     with rasterio.open(partial, "w", **profile) as dst:
         dst.write(data)

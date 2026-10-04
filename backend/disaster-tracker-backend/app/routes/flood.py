@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from app.config import LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
 from app.core.clipper import (
@@ -14,16 +15,22 @@ from app.core.clipper import (
     inspect_flood_point,
 )
 from app.core.downloader import LanceError
+from app.core.alerts import send_sms, send_telegram
 from app.core.geocoder import forward_geocode, reverse_geocode
 from app.models import FloodMetrics, OverlayResponse, InspectResponse
 
 router = APIRouter(prefix="/api/flood", tags=["flood"])
 
 
+class SmsAlertRequest(BaseModel):
+    to: str
+    body: str
+
+
 @router.get("/metrics", response_model=FloodMetrics)
 def get_metrics():
-    # Metrics được build lazy. Request đầu tiên tạo cache; các request sau đọc
-    # JSON đã sinh cho tới khi refresh xóa cache.
+    # Metrics are built lazily. The first request creates the cache; later
+    # requests read the JSON files until refresh invalidates them.
     try:
         _, metrics, bounds = cache.get_or_build()
     except FileNotFoundError:
@@ -42,8 +49,8 @@ def get_metrics():
 
 @router.get("/overlay", response_model=OverlayResponse)
 def get_overlay():
-    # PNG được serve qua /static; bounds cho frontend biết đặt ảnh ở đâu trên
-    # mặt phẳng địa lý.
+    # The PNG is served from /static; bounds tell the frontend where to place it
+    # on the geographic map.
     try:
         _, _, bounds = cache.get_or_build()
     except FileNotFoundError:
@@ -63,7 +70,7 @@ def get_boundary():
 
 @router.post("/refresh")
 def refresh(day: Optional[date] = None, force: bool = False):
-    """Tải từ LANCE ngay; truyền `day` UTC để chọn ngày cụ thể thay vì ngày mới nhất."""
+    """Run the LANCE refresh now; pass a UTC `day` to select a specific date."""
     try:
         result = pipeline.run(day=day, force=force)
     except LanceError as e:
@@ -75,7 +82,7 @@ def refresh(day: Optional[date] = None, force: bool = False):
 
 @router.get("/status")
 def status():
-    """Cho biết pipeline LANCE đã tải gì và kiểm tra lần cuối lúc nào."""
+    """Return what the LANCE pipeline loaded and when it last checked."""
     return {
         **pipeline.read_state(),
         "poll_minutes": LANCE_POLL_MINUTES,
@@ -89,9 +96,37 @@ def geocode(q: str = Query(..., min_length=3, max_length=200)):
     return forward_geocode(q)
 
 
+@router.post("/alerts/sms")
+def sms_alert(payload: SmsAlertRequest):
+    """Send a responder-approved incident brief by SMS."""
+    try:
+        sid = send_sms(payload.to, payload.body)
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    except RuntimeError as error:
+        raise HTTPException(503, str(error))
+    return {"status": "sent", "message_sid": sid}
+
+
+class TelegramAlertRequest(BaseModel):
+    body: str
+
+
+@router.post("/alerts/telegram")
+def telegram_alert(payload: TelegramAlertRequest):
+    """Send a responder-approved incident brief to the configured Telegram chat."""
+    try:
+        message_id = send_telegram(payload.body)
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    except RuntimeError as error:
+        raise HTTPException(503, str(error))
+    return {"status": "sent", "message_id": message_id}
+
+
 @router.get("/inspect", response_model=InspectResponse)
 def inspect(lat: float, lon: float, radius_km: float = Query(2.0, ge=0, le=25)):
-    # Chỉ đọc một pixel trong GeoTIFF; metrics và overlay mới cần toàn bộ mask.
+    # Read one GeoTIFF pixel; only metrics and the overlay need the full mask.
     flooded = inspect_flood_point(lat, lon)
     if flooded is None:
         return InspectResponse(inside=False, lat=lat, lon=lon)

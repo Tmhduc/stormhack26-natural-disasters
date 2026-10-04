@@ -5,11 +5,11 @@ export type Inspection = { inside: boolean; flooded: boolean | null; class_value
 export type GeocodeResult = { address: string; lat: number; lon: number }
 export type Geometry = { type: string; coordinates: number[][][] | number[][][][] }
 export type Boundary = { type: string; features: { geometry: Geometry }[] }
-export async function request<T>(path: string, method = 'GET'): Promise<T> {
+export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), method === 'POST' ? 180000 : 30000)
   try {
-    const response = await fetch(path, { method, signal: controller.signal })
+    const response = await fetch(path, { method, signal: controller.signal, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) })
     if (!response.ok) {
       const body = await response.json().catch(() => null)
       throw new Error(body?.detail || `Request failed (${response.status}). Check backend setup.`)

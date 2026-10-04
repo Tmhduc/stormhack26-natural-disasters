@@ -34,10 +34,10 @@ MCDWD_FLOOD_CLASSES = frozenset({2, 3})
 
 
 def ensure_boundary_geojson() -> str:
-    """Tạo file boundary dễ dùng cho browser từ shapefile gốc."""
+    """Create a browser-friendly GeoJSON boundary from the source shapefile."""
     if not os.path.exists(BOUNDARY_GEOJSON):
-        # Shapefile phù hợp cho xử lý địa lý; GeoJSON dễ để frontend request
-        # và vẽ trực tiếp trên bản đồ.
+        # Shapefiles are convenient for geospatial processing; GeoJSON is easier
+        # for the frontend to request and draw directly.
         gdf = gpd.read_file(BOUNDARY_SHP)
         gdf.to_file(BOUNDARY_GEOJSON, driver="GeoJSON")
     return BOUNDARY_GEOJSON
@@ -61,7 +61,7 @@ def _boundary_wgs84() -> gpd.GeoDataFrame:
 
 
 def boundary_bounds() -> tuple[float, float, float, float]:
-    """Trả về (tây, nam, đông, bắc) của boundary theo độ WGS84."""
+    """Return the boundary as (west, south, east, north) in WGS84 degrees."""
     return tuple(float(v) for v in _boundary_wgs84().total_bounds)
 
 
@@ -71,7 +71,7 @@ def _admin1_wgs84() -> gpd.GeoDataFrame:
 
 
 def administrative_area(lat: float, lon: float) -> dict | None:
-    """Tìm tỉnh/thành chứa tọa độ WGS84 bằng boundary admin1 local."""
+    """Find the local admin1 area containing a WGS84 coordinate."""
     matches = _admin1_wgs84()[_admin1_wgs84().geometry.covers(Point(lon, lat))]
     if matches.empty:
         return None
@@ -84,10 +84,10 @@ def administrative_area(lat: float, lon: float) -> dict | None:
 
 
 def boundary_tiles() -> list[str]:
-    """Tìm ID các tile của sản phẩm ngập giao với boundary.
+    """Find flood-product tile IDs intersecting the national boundary.
 
-    MCDWD dùng lưới kinh/vĩ độ 10 độ: tile hHHvVV có góc trên-trái tại
-    (HH * 10 - 180)°E, (90 - VV * 10)°N.
+    MCDWD uses a 10-degree latitude/longitude grid. Tile hHHvVV has its
+    top-left corner at (HH * 10 - 180)°E, (90 - VV * 10)°N.
     """
     boundary = _boundary_wgs84()
     west, south, east, north = boundary_bounds()
@@ -107,29 +107,29 @@ def _load_clipped_flood() -> tuple:
     vietnam = gpd.read_file(BOUNDARY_SHP)
 
     with rasterio.open(LOCAL_RASTER) as src:
-        # Boundary phải dùng cùng CRS với raster trước khi Rasterio cắt dữ liệu.
+        # Rasterio requires the boundary and raster to use the same CRS.
         vietnam = vietnam.to_crs(src.crs)
         geoms = [mapping(g) for g in vietnam.geometry]
         clipped, transform = mask(src, geoms, crop=True, all_touched=False)
         raster_crs = src.crs
 
     data = clipped[0]
-    # Chuẩn hóa dữ liệu nguồn thành format chung của app: 1 = ngập, 0 = không
-    # ngập. Nhờ vậy metrics, rendering và inspect dùng cùng một quy ước.
+    # Normalize source data into the app convention: 1 = flood, 0 = not flood.
+    # Metrics, rendering, and inspection then share the same representation.
     flood_mask = (data == FLOOD_VALUE).astype(np.uint8)
 
-    # Transform mô tả các cạnh ngoài của array sau khi crop trong CRS của raster.
+    # The transform describes the cropped array's outer edges in the raster CRS.
     raster_bounds = array_bounds(data.shape[0], data.shape[1], transform)
 
-    # API nhận latitude/longitude, vì vậy bounds phải trả về WGS84 ngay cả khi
-    # raster nguồn dùng một CRS chiếu khác.
+    # The API accepts latitude/longitude, so bounds must be returned in WGS84
+    # even when the source raster uses a projected CRS.
     bounds = transform_bounds(raster_crs, "EPSG:4326", *raster_bounds)
     return flood_mask, transform, raster_crs, tuple(float(value) for value in bounds)
 
 
 @lru_cache(maxsize=1)
 def _load_clipped_flood_cached(raster_signature: tuple[int, int]) -> tuple:
-    """Cache bước crop tốn thời gian cho đến khi file mosaic thay đổi."""
+    """Cache the expensive crop step until the mosaic file changes."""
     return _load_clipped_flood()
 
 
@@ -153,12 +153,12 @@ def load_clipped_flood() -> tuple:
 
 
 def load_clipped_flood_with_metadata() -> tuple:
-    """Trả về mask cùng transform và CRS cần cho việc tra cứu tọa độ."""
+    """Return the mask plus transform and CRS needed for coordinate lookup."""
     return _load_clipped_flood_cached(_raster_signature())
 
 
 def inspect_flood_point(lat: float, lon: float) -> int | None:
-    """Đọc và giữ nguyên class gốc của pixel chứa điểm WGS84."""
+    """Read the original product class at a WGS84 coordinate."""
     if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
         return None
 
@@ -172,7 +172,7 @@ def inspect_flood_point(lat: float, lon: float) -> int | None:
 
 
 def inspect_flood_neighborhood(lat: float, lon: float, radius_km: float) -> dict | None:
-    """Thống kê class trong một vùng lân cận nhỏ quanh tọa độ WGS84."""
+    """Count product classes in a small neighborhood around a WGS84 point."""
     if not _boundary_wgs84().geometry.covers(Point(lon, lat)).any():
         return None
 
