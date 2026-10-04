@@ -13,12 +13,16 @@ log = logging.getLogger(__name__)
 
 
 @router.get("/incidents", response_model=List[SavedIncident])
-def list_incidents(limit: int = Query(50, ge=1, le=500)):
+def list_incidents(
+    limit: int = Query(50, ge=1, le=500),
+    status: str | None = Query(None, pattern="^(open|verified|dispatched|resolved)$"),
+    severity: str | None = Query(None, pattern="^(High|Moderate|Watch)$"),
+):
     """Return responder-saved inspection points."""
     if not history.enabled():
         return []
     try:
-        return incidents.list_incidents(limit)
+        return incidents.list_incidents(limit, status=status, severity=severity)
     except Exception as e:
         raise HTTPException(503, f"Flood history database unavailable: {e}")
 
@@ -68,12 +72,12 @@ def update_incident(incident_id: str, payload: IncidentUpdate):
 
 
 @router.get("/hotspots", response_model=List[Hotspot])
-def incident_hotspots(limit: int = Query(10, ge=1, le=50)):
+def incident_hotspots(limit: int = Query(10, ge=1, le=50), days: int = Query(30, ge=1, le=365)):
     """Group saved incidents by province or city."""
     if not history.enabled():
         return []
     try:
-        return incidents.hotspots(limit)
+        return incidents.hotspots(limit, days)
     except Exception as e:
         raise HTTPException(503, f"Flood history database unavailable: {e}")
 

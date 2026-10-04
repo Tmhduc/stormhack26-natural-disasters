@@ -160,10 +160,13 @@ The app never sends an alert automatically just because a pixel is classified as
 | GET | `/api/flood/history` | Read saved history when Postgres is enabled |
 | GET | `/api/flood/history/trend` | Read daily flood totals for a trend chart |
 | GET | `/api/flood/history/incidents` | Read responder-saved inspection points |
+| GET | `/api/flood/history/incidents?status=open` | Filter incidents by workflow status |
+| GET | `/api/flood/history/incidents?severity=High` | Filter incidents by priority |
 | POST | `/api/flood/history/incidents` | Save one inspection point |
 | DELETE | `/api/flood/history/incidents/{id}` | Remove one saved point |
 | PATCH | `/api/flood/history/incidents/{id}` | Update status or responder notes |
 | GET | `/api/flood/history/hotspots` | Group saved points by province/city |
+| GET | `/api/flood/history/hotspots?days=7` | Show recent hotspots only |
 
 ## Run locally
 

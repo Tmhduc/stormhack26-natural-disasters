@@ -5,13 +5,14 @@ Optional: with DATABASE_URL unset nothing here runs, and the app works from file
 
 import os
 import threading
+import logging
 from datetime import date, datetime, timezone
 from functools import lru_cache
 
 import psycopg
 import rasterio
 from PIL import Image
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.config import BASE_DIR, DATABASE_URL, LANCE_PRODUCT
@@ -21,10 +22,24 @@ SCHEMA_FILE = os.path.join(BASE_DIR, "db", "schema.sql")
 SOURCE = "NASA LANCE"  # images.source for rows the pipeline writes
 _schema_lock = threading.Lock()
 _schema_ready = False
+log = logging.getLogger(__name__)
 
 
 def enabled() -> bool:
     return bool(DATABASE_URL)
+
+
+def database_status() -> dict:
+    """Return a safe connection check without exposing the database URL."""
+    if not enabled():
+        return {"configured": False, "connected": False}
+    try:
+        with _engine().connect() as conn:
+            conn.execute(text("select 1"))
+        return {"configured": True, "connected": True}
+    except Exception as error:
+        log.exception("Tiger Data health check failed")
+        return {"configured": True, "connected": False, "error": f"{type(error).__name__}: {error}"}
 
 
 def ensure_schema() -> None:

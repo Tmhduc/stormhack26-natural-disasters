@@ -1,6 +1,6 @@
 """Responder-saved flood observations stored in Tiger Data."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 import logging
 from uuid import uuid4
@@ -55,10 +55,15 @@ def save(payload: dict) -> dict:
     return _as_dict(saved)
 
 
-def list_incidents(limit: int = 50) -> list[dict]:
+def list_incidents(limit: int = 50, status: str | None = None, severity: str | None = None) -> list[dict]:
     """Return recent saved incidents, newest first."""
     history.ensure_schema()
-    stmt = select(FloodIncidentRow.__table__).order_by(FloodIncidentRow.created_at.desc()).limit(limit)
+    stmt = select(FloodIncidentRow.__table__)
+    if status:
+        stmt = stmt.where(FloodIncidentRow.status == status)
+    if severity:
+        stmt = stmt.where(FloodIncidentRow.severity == severity)
+    stmt = stmt.order_by(FloodIncidentRow.created_at.desc()).limit(limit)
     with _engine().connect() as conn:
         return [_as_dict(row) for row in conn.execute(stmt).mappings()]
 
@@ -85,9 +90,10 @@ def update_incident(incident_id: str, changes: dict) -> dict | None:
         return _find(incident_id, conn)
 
 
-def hotspots(limit: int = 10) -> list[dict]:
-    """Group saved incidents by province/city for a simple responder hotspot list."""
-    incidents = list_incidents(500)
+def hotspots(limit: int = 10, days: int = 30) -> list[dict]:
+    """Group recent saved incidents by province/city for a responder hotspot list."""
+    cutoff = date.today() - timedelta(days=days)
+    incidents = [item for item in list_incidents(500) if not item["observed_date"] or date.fromisoformat(item["observed_date"]) >= cutoff]
     grouped = {}
     for item in incidents:
         name = item["admin1_name"] or "Unknown area"

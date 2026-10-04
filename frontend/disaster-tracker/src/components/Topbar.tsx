@@ -1,6 +1,8 @@
-type Props = { connected: boolean; busy: boolean };
+import type { Health } from "../api";
 
-export default function Topbar({ connected, busy }: Props) {
+type Props = { connected: boolean; busy: boolean; health: Health | null };
+
+export default function Topbar({ connected, busy, health }: Props) {
   return (
     <header className="topbar">
       <span>
@@ -11,7 +13,7 @@ export default function Topbar({ connected, busy }: Props) {
         {busy
           ? "Connecting…"
           : connected
-          ? "Backend connected"
+          ? `Backend connected${health?.database.connected ? " · Tiger Data connected" : health?.database.configured ? " · Tiger Data unavailable" : ""}`
           : "Backend offline"}
       </span>
     </header>
