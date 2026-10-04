@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from app.config import LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
@@ -130,6 +130,16 @@ def telegram_alert(payload: TelegramAlertRequest):
     except RuntimeError as error:
         raise HTTPException(503, str(error))
     return {"status": "sent", "recipients": delivered}
+
+
+@router.post("/alerts/telegram/webhook", include_in_schema=False)
+async def telegram_webhook(request: Request):
+    """Telegram delivers the bot's messages here when the backend has a public URL."""
+    if not telegram.enabled() or not telegram.is_from_telegram(request.headers.get("X-Telegram-Bot-Api-Secret-Token")):
+        raise HTTPException(403, "Not a Telegram webhook call.")
+    reply = await telegram.handle_update(await request.json())
+    # Answer with the reply itself: Telegram makes the sendMessage call, saving a round trip.
+    return {"method": "sendMessage", **reply} if reply else {}
 
 
 @router.get("/inspect", response_model=InspectResponse)

@@ -115,6 +115,21 @@ def _build():
     return paths["overlay"], metrics, list(bounds)
 
 
+def store(overlay_png: bytes, metrics: dict, bounds: list) -> None:
+    """Use outputs that were built earlier (e.g. restored from the database) for the current raster."""
+    with _lock:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        paths = _cache_paths()
+        with open(paths["overlay"], "wb") as f:
+            f.write(overlay_png)
+        with open(paths["metrics"], "w") as f:
+            json.dump(metrics, f)
+        with open(paths["bounds"], "w") as f:
+            json.dump(list(bounds), f)
+        with open(paths["manifest"], "w") as f:
+            json.dump(_manifest(), f)
+
+
 def invalidate():
     """Delete generated outputs so the next request rebuilds them."""
     for p in _cache_paths().values():

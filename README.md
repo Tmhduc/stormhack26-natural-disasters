@@ -159,6 +159,28 @@ People subscribe themselves, so nobody has to edit `.env` to add a recipient:
 
 `GET /api/flood/alerts/telegram` returns the subscribe link and the number of chats that will receive alerts.
 
+How the backend receives the bot's messages:
+
+- **Deployed:** when the backend has a public URL, it registers a Telegram webhook on startup. Telegram then sends each message to `/api/flood/alerts/telegram/webhook`. On Render this happens automatically, using the `RENDER_EXTERNAL_URL` Render provides. Elsewhere, set `TELEGRAM_WEBHOOK_BASE_URL` to the backend's public URL. Nothing polls, so overlapping deploys and multiple instances don't conflict.
+- **Locally:** with no public URL, the backend long-polls Telegram instead. Telegram allows only one poller per bot, and none while a webhook is set. While a deployment owns the bot, a local backend logs that the listener stopped and leaves it alone. It can still send alerts.
+
+To go back to local polling after a deployment has set the webhook, delete the webhook: open `https://api.telegram.org/bot<TOKEN>/deleteWebhook` once. The deployment registers it again the next time it starts.
+
+## Deploying on Render
+
+A Render instance starts with an empty disk on every deploy, and every time a free instance wakes from sleep. On startup the backend handles this itself:
+
+- It extracts the boundary shapefiles from `vnm_admin_boundaries.shp.zip`.
+- If no flood data is on disk, it restores the newest day saved in the database: the GeoTIFF, the overlay, the metrics and the pipeline state. The dashboard has data within seconds, with no download or processing.
+
+The pipeline itself needs about 6 GB of memory at its peak, far more than a 512 MB instance. So:
+
+- On Render, set `LANCE_POLL_MINUTES=0` and don't use **Refresh satellite data** there.
+- Run the pipeline on a machine with enough memory (`uv run python -m app.core.pipeline`), pointed at the same `DATABASE_URL`.
+- After the pipeline saves a new day, restart or redeploy the Render service so it picks up that day.
+
+Serving the dashboard (data, outline and inspect) peaks at about 480 MB.
+
 ## Team workflow
 
 Pull the latest branch before starting work:
