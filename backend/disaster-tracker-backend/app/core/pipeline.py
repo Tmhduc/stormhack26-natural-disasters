@@ -18,7 +18,8 @@ import threading
 from datetime import date, datetime, timezone
 
 from app.config import (
-    LANCE_LOOKBACK_DAYS, LANCE_PRODUCT, LANCE_TILES, LOCAL_RASTER, STATE_FILE
+    LANCE_DATA_LAG_DAYS, LANCE_LOOKBACK_DAYS, LANCE_PRODUCT, LANCE_TILES,
+    LOCAL_RASTER, STATE_FILE
 )
 from app.core import cache, downloader, history
 from app.core.clipper import boundary_bounds, boundary_tiles
@@ -79,7 +80,11 @@ def run(day: date | None = None, force: bool = False) -> dict:
         try:
             tiles = LANCE_TILES or boundary_tiles()
             if day is None:
-                day, remote = downloader.find_latest(tiles, LANCE_LOOKBACK_DAYS)
+                day, remote = downloader.find_latest(
+                    tiles,
+                    LANCE_LOOKBACK_DAYS,
+                    LANCE_DATA_LAG_DAYS,
+                )
             else:
                 remote = downloader.tiles_for_day(day, tiles)
             versions = {t.tile: {"mtime": t.mtime, "size": t.size} for t in remote}

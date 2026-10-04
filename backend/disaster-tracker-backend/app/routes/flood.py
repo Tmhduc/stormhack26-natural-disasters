@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from app.config import BOUNDARY_GEOJSON, LANCE_POLL_MINUTES
+from app.config import BOUNDARY_GEOJSON, LANCE_DATA_LAG_DAYS, LANCE_POLL_MINUTES
 from app.core import cache, pipeline
 from app.core.clipper import (
     MCDWD_CLASS_NAMES,
@@ -72,7 +72,11 @@ def refresh(day: Optional[date] = None, force: bool = False):
 @router.get("/status")
 def status():
     """Cho biết pipeline LANCE đã tải gì và kiểm tra lần cuối lúc nào."""
-    return {**pipeline.read_state(), "poll_minutes": LANCE_POLL_MINUTES}
+    return {
+        **pipeline.read_state(),
+        "poll_minutes": LANCE_POLL_MINUTES,
+        "data_lag_days": LANCE_DATA_LAG_DAYS,
+    }
 
 
 @router.get("/inspect", response_model=InspectResponse)

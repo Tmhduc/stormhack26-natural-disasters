@@ -76,14 +76,14 @@ def tiles_for_day(day: date, tiles: list[str]) -> list[RemoteTile]:
     return [available[t] for t in tiles]
 
 
-def find_latest(tiles: list[str], lookback_days: int) -> tuple[date, list[RemoteTile]]:
+def find_latest(tiles: list[str], lookback_days: int, lag_days: int = 0) -> tuple[date, list[RemoteTile]]:
     """Tìm ngày UTC mới nhất đã công bố đầy đủ tất cả `tiles`.
 
     Ngày hiện tại được bổ sung dần khi vệ tinh bay qua, nên phải bỏ qua cho
     đến khi đủ tile thay vì ghép một ngày chưa hoàn chỉnh.
     """
     today = datetime.now(timezone.utc).date()
-    for back in range(lookback_days + 1):
+    for back in range(max(0, lag_days), lookback_days + 1):
         day = today - timedelta(days=back)
         try:
             return day, tiles_for_day(day, tiles)

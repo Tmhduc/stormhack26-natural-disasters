@@ -50,6 +50,8 @@ Các cấu hình chính:
 - `LANCE_TILES`: danh sách tile cho phép, phân cách bằng dấu phẩy. Nếu để
   rỗng, backend tự tính các tile giao với boundary Việt Nam.
 - `LANCE_LOOKBACK_DAYS`: số ngày lùi lại khi tìm một ngày có đủ tile.
+- `LANCE_DATA_LAG_DAYS`: số ngày chờ trước khi tự động chọn dữ liệu. Mặc định
+      `1`, để tránh chọn ngày hiện tại còn thiếu coverage; vẫn là dữ liệu NRT.
 - `LANCE_POLL_MINUTES`: khoảng cách giữa hai lần poll. Đặt `0` để tắt poller.
 
 Boundary nguồn:
@@ -132,12 +134,18 @@ nên giả định chỉ có `h28v07`.
 
 ### 5.2. Tìm ngày có đủ dữ liệu
 
-Nếu request không chỉ định `day`, hàm `downloader.find_latest()` kiểm tra
-ngày UTC hiện tại rồi lùi dần trong `LANCE_LOOKBACK_DAYS` ngày.
+Nếu request không chỉ định `day`, hàm `downloader.find_latest()` bắt đầu từ
+ngày UTC hiện tại trừ `LANCE_DATA_LAG_DAYS`, rồi lùi dần trong phạm vi
+`LANCE_LOOKBACK_DAYS`. Mặc định pipeline bắt đầu từ ngày hôm qua thay vì ngày
+hiện tại đang còn được bổ sung dữ liệu.
 
 Một ngày chỉ được chọn khi tất cả tile cần thiết đều xuất hiện và có trạng
 thái `Online` trên API LANCE. Nếu thiếu một tile, ngày đó bị bỏ qua. Nếu không
-có ngày nào đầy đủ, pipeline ném `LanceError`.
+có ngày nào đầy đủ, pipeline ném `LanceError`. `LANCE_DATA_LAG_DAYS` không làm
+mất tính NRT; nó chỉ ưu tiên coverage ổn định hơn ngày mới nhất.
+
+Request `POST /api/flood/refresh?day=YYYY-MM-DD` vẫn tải đúng ngày được chỉ
+định, không áp dụng độ trễ tự động.
 
 Điều này tránh việc ghép một mosaic chỉ có một phần tile của ngày hiện tại,
 vì dữ liệu near-real-time thường được công bố dần theo các lượt vệ tinh bay

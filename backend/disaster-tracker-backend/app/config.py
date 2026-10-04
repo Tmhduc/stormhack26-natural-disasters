@@ -40,6 +40,7 @@ LANCE_PRODUCT = os.getenv("LANCE_PRODUCT", "MCDWD_L3_F2_NRT")
 # ID tile cách nhau bằng dấu phẩy, ví dụ "h28v07". Rỗng = mọi tile giao boundary.
 LANCE_TILES = [t.strip() for t in os.getenv("LANCE_TILES", "").split(",") if t.strip()]
 LANCE_LOOKBACK_DAYS = int(os.getenv("LANCE_LOOKBACK_DAYS", "7"))  # LANCE thường giữ khoảng 8 ngày
+LANCE_DATA_LAG_DAYS = int(os.getenv("LANCE_DATA_LAG_DAYS", "1"))  # chờ thêm một ngày để coverage NRT ổn định hơn
 LANCE_POLL_MINUTES = float(os.getenv("LANCE_POLL_MINUTES", "60"))  # 0 thì tắt poller nền
 
 # --- Nguồn LANCE gần thời gian thực (MODIS NRT Global Flood Product, MCDWD) ---
@@ -50,6 +51,7 @@ LANCE_PRODUCT = os.getenv("LANCE_PRODUCT", "MCDWD_L3_F2_NRT")
 # ID tile cách nhau bằng dấu phẩy, ví dụ "h28v07". Rỗng = mọi tile giao boundary.
 LANCE_TILES = [t.strip() for t in os.getenv("LANCE_TILES", "").split(",") if t.strip()]
 LANCE_LOOKBACK_DAYS = int(os.getenv("LANCE_LOOKBACK_DAYS", "7"))  # LANCE thường giữ khoảng 8 ngày
+LANCE_DATA_LAG_DAYS = int(os.getenv("LANCE_DATA_LAG_DAYS", "1"))  # chờ thêm một ngày để coverage NRT ổn định hơn
 LANCE_POLL_MINUTES = float(os.getenv("LANCE_POLL_MINUTES", "60"))  # 0 thì tắt poller nền
 
 # Các hằng số mô tả sản phẩm raster hiện tại. FLOOD_VALUE là giá trị lớp ngập,
